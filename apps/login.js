@@ -87,7 +87,7 @@ export class LotusLogin extends BasePlugin {
       const created = await qr.create()
       const qrDataUrl = await QRCode.toDataURL(created.url, {
         margin: 1,
-        scale: 10,
+        scale: 2,
         errorCorrectionLevel: "M",
       })
       const image = await renderTemplate("qr-login", {

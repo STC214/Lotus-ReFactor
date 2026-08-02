@@ -53,7 +53,7 @@ class SkiaRenderer {
     this.options = options
     this.width = isAtlasTemplate(templateName) ? 1280 : 760
     this.padding = isAtlasTemplate(templateName) ? 34 : 34
-    this.renderScale = normalizeRenderScale(options.renderScale ?? data.renderScale ?? process.env.LOTUS_RENDER_SCALE ?? 4)
+    this.renderScale = normalizeRenderScale(options.renderScale ?? data.renderScale ?? process.env.LOTUS_RENDER_SCALE ?? 1)
     this.commands = []
     this.y = this.padding
     this.imageRefs = new Set()
