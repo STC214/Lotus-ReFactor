@@ -1,3 +1,4 @@
+import fs from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import {
@@ -350,9 +351,19 @@ function formatSeconds(seconds) {
   return `${minutes}分钟`
 }
 
-async function loadGenshinMysApi() {
-  const file = path.join(process.cwd(), "plugins", "genshin", "model", "mys", "MysApi.js")
-  return (await import(pathToFileURL(file).href)).default
+export async function loadGenshinMysApi(options = {}) {
+  const root = options.root || process.cwd()
+  const directory = path.join(root, "plugins", "genshin", "model", "mys")
+  const entries = await fs.readdir(directory)
+  const fileName = entries.find(name => name.toLowerCase() === "mysapi.js")
+  if (!fileName) {
+    throw new Error(`genshin MysApi module is missing: ${directory}`)
+  }
+  const module = await import(pathToFileURL(path.join(directory, fileName)).href)
+  if (typeof module.default !== "function") {
+    throw new Error(`genshin MysApi default export is invalid: ${fileName}`)
+  }
+  return module.default
 }
 
 function applyServerToMysApi(api, server) {
