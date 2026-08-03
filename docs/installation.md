@@ -12,7 +12,7 @@
 ## 安装
 
 ```bash
-git clone --recurse-submodules https://github.com/MOPELotus/Lotus-ReFactor.git Lotus-Plugin
+git clone --recurse-submodules https://github.com/STC214/Lotus-ReFactor.git Lotus-Plugin
 cd Lotus-Plugin
 corepack enable
 pnpm install
