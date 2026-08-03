@@ -9,10 +9,11 @@ export class SchedulerService {
   constructor(options = {}) {
     this.config = options.config
     this.random = options.random || Math.random
+    this.planDir = options.planDir || resolveData("schedules")
   }
 
   async getOrCreatePlan(date = nextDateString(), options = {}) {
-    const file = schedulePlanPath(date)
+    const file = this.planPath(date)
     if (!options.force) {
       const existing = await readPlan(file)
       if (existing) return existing
@@ -25,21 +26,23 @@ export class SchedulerService {
       profiles,
       config,
     })
-    await fs.mkdir(path.dirname(file), { recursive: true })
-    await fs.writeFile(file, JSON.stringify(plan, null, 2), "utf8")
+    await writePlanAtomic(file, plan)
     return plan
   }
 
   async getPlan(date = dateString()) {
-    return readPlan(schedulePlanPath(date))
+    return readPlan(this.planPath(date))
   }
 
   async savePlan(plan) {
     if (!plan?.date) throw new Error("schedule plan date is required")
-    const file = schedulePlanPath(plan.date)
-    await fs.mkdir(path.dirname(file), { recursive: true })
-    await fs.writeFile(file, JSON.stringify(plan, null, 2), "utf8")
+    const file = this.planPath(plan.date)
+    await writePlanAtomic(file, plan)
     return file
+  }
+
+  planPath(date) {
+    return path.join(this.planDir, `${date}.json`)
   }
 
   async addLateProfileToExistingPlans(profile, options = {}) {
@@ -223,13 +226,17 @@ function createLateEntry(profile, scheduler, lateCount, now) {
   }
 }
 
-function normalizeSchedulerConfig(config = {}) {
+export function normalizeSchedulerConfig(config = {}) {
   return {
     enable: config.enable ?? true,
     plan_generate_cron: config.plan_generate_cron || "0 0 0 * * ? *",
     run_due_cron: config.run_due_cron || "0 * * * * ? *",
+    catch_up_cron: config.catch_up_cron || "0 */10 * * * ? *",
     mode: config.mode || "fixed",
     fixed_time: config.fixed_time || "04:30",
+    entry_timeout_minutes: positiveNumber(config.entry_timeout_minutes, 20),
+    running_timeout_minutes: positiveNumber(config.running_timeout_minutes, 30),
+    failure_retry_minutes: normalizeRetryMinutes(config.failure_retry_minutes),
     random: {
       window_start: config.random?.window_start || "00:00",
       window_end: config.random?.window_end || "23:30",
@@ -253,10 +260,38 @@ async function readPlan(file) {
   }
 }
 
+async function writePlanAtomic(file, plan) {
+  await fs.mkdir(path.dirname(file), { recursive: true })
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`
+  await fs.writeFile(temp, `${JSON.stringify(plan, null, 2)}\n`, "utf8")
+  try {
+    await fs.rename(temp, file)
+  } catch (error) {
+    if (!["EEXIST", "EPERM"].includes(error?.code)) throw error
+    const previous = `${file}.${process.pid}.previous`
+    await fs.rm(previous, { force: true })
+    await fs.rename(file, previous).catch(renameError => {
+      if (renameError?.code !== "ENOENT") throw renameError
+    })
+    try {
+      await fs.rename(temp, file)
+    } catch (replaceError) {
+      await fs.rename(previous, file).catch(() => {})
+      throw replaceError
+    }
+    await fs.rm(previous, { force: true })
+  } finally {
+    await fs.rm(temp, { force: true }).catch(() => {})
+  }
+}
+
 function parseTime(value = "00:00") {
   const match = String(value).match(/^(\d{1,2}):(\d{2})$/)
   if (!match) throw new Error(`Invalid time: ${value}`)
-  return Math.min(24 * 60 - 1, Number(match[1]) * 60 + Number(match[2]))
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) throw new Error(`Invalid time: ${value}`)
+  return hours * 60 + minutes
 }
 
 function formatMinute(value) {
@@ -274,4 +309,14 @@ function hasPlanEntry(plan, profile) {
 
 function minuteOfDay(date) {
   return date.getHours() * 60 + date.getMinutes()
+}
+
+function positiveNumber(value, fallback) {
+  const number = Number(value)
+  return Number.isFinite(number) && number > 0 ? number : fallback
+}
+
+function normalizeRetryMinutes(value) {
+  if (!Array.isArray(value)) return [15, 60]
+  return value.map(Number).filter(item => Number.isFinite(item) && item > 0 && item <= 1440)
 }

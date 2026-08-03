@@ -8,6 +8,7 @@ import {
 } from "../../core/path.js"
 import { loadGlobalConfig } from "../../core/config/global.js"
 import { formatLocalIso } from "../../core/time.js"
+import { detectPythonEnvironment } from "../runtime/environment.js"
 
 export class PythonEnvService {
   constructor(options = {}) {
@@ -25,20 +26,22 @@ export class PythonEnvService {
   async getPythonExecutable() {
     const config = await this.getConfig()
     if (config.mode === "system") {
-      return {
-        command: config.system_python || "python",
-        args: [],
-        mode: "system",
-      }
+      const detected = await this.detectSystemPython(config)
+      return { ...detected, mode: "system" }
     }
 
     const venvPath = resolveMaybeData(config.venv_path || "data/python/venv")
     const executable = process.platform === "win32"
       ? path.join(venvPath, "Scripts", "python.exe")
       : path.join(venvPath, "bin", "python")
+    const detected = await detectPythonEnvironment({
+      configured: executable,
+      includeDefaults: false,
+      minimumVersion: config.minimum_version || "3.10",
+      spawn: this.spawn,
+    })
     return {
-      command: executable,
-      args: [],
+      ...detected,
       mode: "venv",
       venvPath,
     }
@@ -56,9 +59,10 @@ export class PythonEnvService {
       await fs.access(pyvenv)
     } catch (error) {
       if (error?.code !== "ENOENT") throw error
-      const systemPython = config.system_python || "python"
+      const systemPython = await this.detectSystemPython(config)
       await emitProgress(onProgress, `Python：创建虚拟环境 ${venvPath}`)
-      await runProcess(this.spawn, systemPython, ["-m", "venv", venvPath], {
+      await emitProgress(onProgress, `Python：使用 ${systemPython.executable} (${systemPython.version}, ${systemPython.platform}/${systemPython.arch})`)
+      await runProcess(this.spawn, systemPython.command, [...systemPython.args, "-m", "venv", venvPath], {
         cwd: rootPath,
       })
       await emitProgress(onProgress, "Python：虚拟环境创建完成")
@@ -70,6 +74,7 @@ export class PythonEnvService {
     if (installRequirements && status.stale) {
       await emitProgress(onProgress, `MihoyoBBSTools：安装 Python 依赖（${status.reasons.join(", ") || "首次初始化"}）`)
       await runProcess(this.spawn, python.command, [
+        ...(python.args || []),
         "-m",
         "pip",
         "install",
@@ -92,6 +97,15 @@ export class PythonEnvService {
     }
   }
 
+  async detectSystemPython(config = null) {
+    const normalized = config || await this.getConfig()
+    return detectPythonEnvironment({
+      configured: normalized.system_python,
+      minimumVersion: normalized.minimum_version || "3.10",
+      spawn: this.spawn,
+    })
+  }
+
   async getFingerprintStatus(venvPath) {
     const current = await this.buildFingerprint()
     const file = path.join(venvPath, "lotus-fingerprint.json")
@@ -111,6 +125,16 @@ export class PythonEnvService {
     return {
       requirements_sha256: createHash("sha256").update(raw).digest("hex"),
       bbstools_commit: commit,
+      python_environment: await this.pythonFingerprint(),
+    }
+  }
+
+  async pythonFingerprint() {
+    try {
+      const python = await this.detectSystemPython()
+      return `${python.implementation || "Python"}-${python.version}-${python.platform}-${python.arch}`
+    } catch {
+      return "unavailable"
     }
   }
 
@@ -165,6 +189,7 @@ export function diffFingerprint(saved, current) {
   const reasons = []
   if (saved.requirements_sha256 !== current.requirements_sha256) reasons.push("requirements")
   if ((saved.bbstools_commit || "") !== (current.bbstools_commit || "")) reasons.push("bbstools_commit")
+  if ((saved.python_environment || "") !== (current.python_environment || "")) reasons.push("python_environment")
 
   return {
     current,

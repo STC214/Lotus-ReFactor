@@ -8,6 +8,7 @@ import fsSync from "node:fs"
 import { loadGlobalConfig } from "../../core/config/global.js"
 import { resolveData, rootPath } from "../../core/path.js"
 import { runProcess } from "../python/env.js"
+import { detectPythonEnvironment } from "../runtime/environment.js"
 import { formatLocalIso } from "../../core/time.js"
 
 const DEFAULT_MODEL_FILES = [
@@ -40,9 +41,14 @@ export class TestNineEnvService {
     const executable = process.platform === "win32"
       ? path.join(venvPath, "Scripts", "python.exe")
       : path.join(venvPath, "bin", "python")
+    const detected = await detectPythonEnvironment({
+      configured: executable,
+      includeDefaults: false,
+      minimumVersion: this.pythonConfig?.minimum_version || "3.10",
+      spawn: this.spawn,
+    })
     return {
-      command: executable,
-      args: [],
+      ...detected,
       mode: "venv",
       venvPath,
     }
@@ -121,9 +127,14 @@ export class TestNineEnvService {
     } catch (error) {
       if (error?.code !== "ENOENT") throw error
     }
-    const systemPython = this.pythonConfig?.system_python || "python"
+    const systemPython = await detectPythonEnvironment({
+      configured: this.pythonConfig?.system_python,
+      minimumVersion: this.pythonConfig?.minimum_version || "3.10",
+      spawn: this.spawn,
+    })
     await emitProgress(onProgress, `test_nine：创建虚拟环境 ${venvPath}`)
-    await runProcess(this.spawn, systemPython, ["-m", "venv", venvPath], {
+    await emitProgress(onProgress, `test_nine：使用 ${systemPython.executable} (${systemPython.version}, ${systemPython.platform}/${systemPython.arch})`)
+    await runProcess(this.spawn, systemPython.command, [...systemPython.args, "-m", "venv", venvPath], {
       cwd: rootPath,
     })
     await emitProgress(onProgress, "test_nine：虚拟环境创建完成")

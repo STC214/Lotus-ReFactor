@@ -1,8 +1,9 @@
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { resourcesPath } from "../path.js"
+import { loadGlobalConfig } from "../config/global.js"
 import { formatLocalDateTime } from "../time.js"
-import { createRenderBackgroundProvider } from "./background.js"
+import { createRenderBackgroundProvider, resolveSuperResolutionScale } from "./background.js"
 
 const DEFAULT_RENDER_OPTIONS = Object.freeze({
   imgType: "jpeg",
@@ -12,12 +13,13 @@ const DEFAULT_RENDER_OPTIONS = Object.freeze({
 let skiaRendererPromise = null
 
 export async function renderTemplate(templateName, data = {}, options = {}) {
+  const globalConfig = await loadGlobalConfig()
   const saveId = sanitizeSaveId(options.saveId || templateName)
   const fontPath = toFileUrl(path.join(resourcesPath, "fonts", "MiSans-VF.ttf"))
   const hasExplicitBackground = Boolean(data.bg || data.backgrounds || data.backgroundProvider)
   const backgroundProvider = data.backgroundProvider || (hasExplicitBackground
     ? null
-    : await createRenderBackgroundProvider())
+    : await createRenderBackgroundProvider(globalConfig))
   const bg = data.bg || firstBackground(data.backgrounds) || (backgroundProvider ? await backgroundProvider() : "")
   const payload = {
     pluginName: "荷花插件",
@@ -37,6 +39,7 @@ export async function renderTemplate(templateName, data = {}, options = {}) {
   return renderWithSkia(templateName, payload, {
     ...DEFAULT_RENDER_OPTIONS,
     ...options,
+    renderScale: options.renderScale ?? resolveSuperResolutionScale(globalConfig.render?.super_resolution_preset),
     saveId,
     data: payload,
   })

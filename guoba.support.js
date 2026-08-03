@@ -7,6 +7,8 @@ import { DEFAULT_GLOBAL_CONFIG } from "./core/config/defaults.js"
 
 const ARRAY_FIELDS = new Set([
   "render.background",
+  "render.background_retry_delays_minutes",
+  "scheduler.failure_retry_minutes",
   "captcha.providers",
   "captcha.test_nine.model_files",
   "remote.allowed_paths",
@@ -24,6 +26,11 @@ const ARRAY_FIELDS = new Set([
 
 const NUMBER_FIELDS = new Set([
   "render.background_timeout_ms",
+  "render.background_pool_size",
+  "render.background_download_retries",
+  "render.background_max_bytes",
+  "scheduler.entry_timeout_minutes",
+  "scheduler.running_timeout_minutes",
   "captcha.refresh.max_attempts",
   "captcha.retry.provider_attempts",
   "captcha.retry.chain_attempts",
@@ -58,8 +65,10 @@ const NUMBER_FIELDS = new Set([
 ])
 
 const CRON_FIELDS = new Set([
+  "render.background_refresh_cron",
   "scheduler.plan_generate_cron",
   "scheduler.run_due_cron",
+  "scheduler.catch_up_cron",
   "netease_partner.schedule",
   "atlas.auto_update.check_cron",
 ])
@@ -95,19 +104,37 @@ const SCOPE_LABELS = {
 
 const GUOBA_SCHEMAS = [
   group("渲染"),
-  textArea("render.background", "随机背景接口", "每行一个接口、本地路径或图片目录 JSON；会随机选择并自动兜底。"),
+  textArea("render.background", "随机背景接口", "每行一个接口或本地路径；更新时逐个测速并优先使用最快接口。"),
   input("render.theme_color", "主题色", "用于状态卡和强调色。"),
-  number("render.background_timeout_ms", "背景加载超时", "单位毫秒。"),
+  number("render.background_timeout_ms", "背景加载超时", "接口测速与单张下载超时，单位毫秒。"),
+  sw("render.background_pool_enable", "启用本地背景池", "首次启动自动测速下载；之后渲染只读取本地图片。"),
+  number("render.background_pool_size", "本地背景数量", "每次更新保留的图片数，默认 10。"),
+  cron("render.background_refresh_cron", "背景更新时间", "每天按此时间重新测速、下载新图片并删除上一批。"),
+  number("render.background_download_retries", "单接口下载重试", "图片重复或失败时的重试系数。"),
+  sw("render.background_retry_enable", "更新失败自动重试", "每日更新失败后继续使用旧图片，并按下方间隔在当天重试。"),
+  textArea("render.background_retry_delays_minutes", "失败重试间隔", "每行一个分钟数；默认依次等待 10、30、60 分钟。"),
+  number("render.background_max_bytes", "单图体积上限", "单位字节，默认 20 MiB。"),
+  select("render.super_resolution_preset", "超分辨率档位", [
+    { label: "关闭（1x）", value: "off" },
+    { label: "低（1.5x）", value: "low" },
+    { label: "中（2x）", value: "medium" },
+    { label: "高（3x）", value: "high" },
+    { label: "极高（4x）", value: "ultra" },
+  ], "档位越高，CPU 与内存负担越大。"),
 
   group("签到调度"),
   sw("scheduler.enable", "启用自动调度", "关闭后只允许手动签到。"),
   cron("scheduler.plan_generate_cron", "生成计划时间", "每天按此 cron 生成次日签到表。"),
   cron("scheduler.run_due_cron", "到期扫描频率", "扫描到期任务并执行签到。"),
+  cron("scheduler.catch_up_cron", "计划补偿检查", "错过计划生成任务时检查并补建。"),
   select("scheduler.mode", "全局签到模式", [
     { label: "固定时间", value: "fixed" },
     { label: "随机时间", value: "random" },
   ], "主人控制的默认模式。"),
   input("scheduler.fixed_time", "固定签到时间", "格式 HH:mm。"),
+  number("scheduler.entry_timeout_minutes", "单次签到超时", "超时后终止 runner，避免阻塞后续账号。"),
+  number("scheduler.running_timeout_minutes", "执行锁失效时间", "必须大于单次签到超时；重启后超过该时间会恢复执行。"),
+  textArea("scheduler.failure_retry_minutes", "签到失败重试间隔", "每行一个分钟数；默认失败后 15、60 分钟重试。"),
   input("scheduler.random.window_start", "随机窗口开始", "格式 HH:mm。"),
   input("scheduler.random.window_end", "随机窗口结束", "格式 HH:mm。"),
   sw("scheduler.random.notify_before", "通知随机时间", "生成计划后通知用户次日时间。"),
@@ -158,7 +185,8 @@ const GUOBA_SCHEMAS = [
     { label: "系统 Python", value: "system" },
   ], "默认使用虚拟环境。"),
   input("python.venv_path", "主 venv 目录", "Lotus Python 环境目录。"),
-  input("python.system_python", "系统 Python 路径", "system 模式下使用。"),
+  input("python.system_python", "系统 Python 路径", "留空或 auto 时按平台自动探测。"),
+  input("python.minimum_version", "最低 Python 版本", "默认 3.10；版本不足会继续探测下一个候选。"),
 
   group("工具链"),
   sw("tools.auto_install", "自动准备工具", "初始化时自动下载工具链。"),

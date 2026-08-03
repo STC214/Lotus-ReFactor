@@ -9,9 +9,12 @@ export class ProfileSigninService {
     this.account = options.account || new AccountService(options)
     this.runner = options.runner || new MihoyoBbsToolsRunner(options)
     this.render = options.render !== false
+    this.renderResult = options.renderSigninResult || renderSigninResult
+    this.renderFailure = options.renderSigninFailure || renderSigninFailure
+    this.appendAudit = options.appendAudit || appendCheckinAudit
   }
 
-  async run({ qq, profileId = 1, profile, refresh = true, onCaptchaEvent, installRequirements = false } = {}) {
+  async run({ qq, profileId = 1, profile, refresh = true, onCaptchaEvent, installRequirements = false, source = "manual", timeoutMs } = {}) {
     const userId = String(qq || profile?.user?.qq || "")
     const id = Number(profileId || profile?.profile?.id || 1)
     let activeProfile = profile || await loadProfile(userId, id)
@@ -26,6 +29,7 @@ export class ProfileSigninService {
           error,
           message: "签到前刷新登录信息失败，本次签到已停止。",
           advice: "请重新扫码登录对应 profile，或检查 stoken 是否已失效。",
+          source,
         })
       }
     }
@@ -37,53 +41,64 @@ export class ProfileSigninService {
         error: new Error("profile has no cookie"),
         message: "profile 尚未保存 cookie，无法执行签到。",
         advice: "请先使用 #扫码登录 绑定当前 profile。",
+        source,
       })
     }
 
     const skipped = collectSkipped(activeProfile)
+    let result
     try {
-      const result = await this.runner.runProfile(prepareRunnableProfile(activeProfile), {
+      result = await this.runner.runProfile(prepareRunnableProfile(activeProfile), {
         installRequirements,
         onCaptchaEvent,
+        timeoutMs,
       })
-      const image = this.render
-        ? await renderSigninResult({ result, profile: activeProfile, skipped })
-        : null
-      const outcome = {
-        ok: Boolean(result.ok),
-        stage: "checkin",
-        profile: activeProfile,
-        result,
-        skipped,
-        image,
-        message: result.message || (result.ok ? "签到完成。" : "签到失败。"),
-      }
-      await this.audit(outcome)
-      return outcome
     } catch (error) {
       return this.failure({
-        stage: "runner",
+        stage: error?.code === "LOTUS_RUNNER_TIMEOUT" ? "timeout" : "runner",
         profile: activeProfile,
         error,
         message: "MihoyoBBSTools runner 执行失败。",
         advice: "先执行 #初始化签到环境，确认 profile 登录态、设备信息和 Python 依赖。",
+        source,
       })
     }
+
+    let image = null
+    if (this.render) {
+      try {
+        image = await this.renderResult({ result, profile: activeProfile, skipped })
+      } catch (error) {
+        globalThis.logger?.warn?.(`[Lotus-Plugin] signin result render failed, keeping runner outcome: ${error.message}`)
+      }
+    }
+    const outcome = {
+      ok: Boolean(result.ok),
+      stage: "checkin",
+      source,
+      profile: activeProfile,
+      result,
+      skipped,
+      image,
+      message: result.message || (result.ok ? "签到完成。" : "签到失败。"),
+    }
+    await this.audit(outcome)
+    return outcome
   }
 
-  async failure({ stage, profile, error, message, advice }) {
-    const image = this.render
-      ? await renderSigninFailure({
-        stage,
-        profile,
-        error,
-        message,
-        advice,
-      })
-      : null
+  async failure({ stage, profile, error, message, advice, source = "manual" }) {
+    let image = null
+    if (this.render) {
+      try {
+        image = await this.renderFailure({ stage, profile, error, message, advice })
+      } catch (renderError) {
+        globalThis.logger?.warn?.(`[Lotus-Plugin] signin failure render failed: ${renderError.message}`)
+      }
+    }
     const outcome = {
       ok: false,
       stage,
+      source,
       profile,
       error,
       image,
@@ -95,9 +110,9 @@ export class ProfileSigninService {
 
   async audit(outcome) {
     try {
-      await appendCheckinAudit(outcome)
+      await this.appendAudit(outcome)
     } catch (error) {
-      logger?.warn?.(`[Lotus-Plugin] checkin audit failed: ${error.message}`)
+      globalThis.logger?.warn?.(`[Lotus-Plugin] checkin audit failed: ${error.message}`)
     }
   }
 }

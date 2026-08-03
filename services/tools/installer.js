@@ -6,6 +6,13 @@ import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
 import { loadGlobalConfig } from "../../core/config/global.js"
 import { resolveData, rootPath } from "../../core/path.js"
+import {
+  detectRuntimeEnvironment,
+  findExecutableOnPath,
+  normalizeArch as normalizeRuntimeArch,
+  normalizePlatform as normalizeRuntimePlatform,
+  selectEnvironmentValue,
+} from "../runtime/environment.js"
 
 const TOOL_NAMES = ["bbdown", "ffmpeg", "aria2"]
 const DEFAULT_INSTALL_ATTEMPTS = 3
@@ -17,6 +24,13 @@ export class ToolInstallerService {
     this.spawn = options.spawn || spawn
     this.platform = options.platform || process.platform
     this.arch = options.arch || process.arch
+    this.env = options.env || process.env
+    this.environment = options.environment || detectRuntimeEnvironment({
+      platform: this.platform,
+      arch: this.arch,
+      libc: options.libc,
+      report: options.report,
+    })
     this.onProgress = options.onProgress
   }
 
@@ -62,6 +76,7 @@ export class ToolInstallerService {
       ok: items.every(item => item.ok),
       skipped: false,
       binDir: resolveMaybeData(config.bin_dir || "data/tools/bin"),
+      environment: this.environment,
       items,
     }
   }
@@ -76,7 +91,11 @@ export class ToolInstallerService {
     const toolsDir = resolveMaybeData(normalized.dir || "data/tools")
     const existing = await findCommandExecutable(tool.command, [binDir], this.platform)
     if (existing) {
-      const health = await inspectToolInstall(name, existing, binDir, toolsDir, this.platform)
+      const health = await inspectToolInstall(name, existing, binDir, toolsDir, this.platform, {
+        spawn: this.spawn,
+        env: this.env,
+        source: "local",
+      })
       if (health.ok) {
         await ensureExecutablePermissions(name, existing, binDir, this.platform)
         await emitProgress(onProgress, `工具链：${name} 已存在`)
@@ -84,22 +103,59 @@ export class ToolInstallerService {
           name,
           ok: true,
           status: "ready",
+          source: "local",
           path: existing,
         }
       }
       await emitProgress(onProgress, `工具链：${name} 需要修复：${health.reason}`)
+      await fs.rm(existing, { force: true }).catch(() => null)
+    }
+
+    const system = await findExecutableOnPath(tool.command, {
+      platform: this.platform,
+      env: this.env,
+    })
+    if (system) {
+      const health = await inspectToolInstall(name, system, binDir, toolsDir, this.platform, {
+        spawn: this.spawn,
+        env: this.env,
+        source: "system",
+      })
+      if (health.ok) {
+        await emitProgress(onProgress, `工具链：${name} 使用系统组件 ${system}`)
+        return {
+          name,
+          ok: true,
+          status: "system",
+          source: "system",
+          path: system,
+          environment: this.environment.key,
+        }
+      }
+      await emitProgress(onProgress, `工具链：系统 ${name} 不可用：${health.reason}`)
     }
 
     if (typeof this.fetch !== "function") throw new Error("fetch is unavailable")
     if (name === "ffmpeg") await removeSharedFfmpegArtifacts(toolsDir)
-    await emitProgress(onProgress, `工具链：查询 ${tool.repo} 最新版本`)
-    const release = await this.fetchLatestRelease(tool.repo, normalized.github_api)
-    const asset = pickReleaseAsset(name, release.assets || [], {
-      platform: this.platform,
-      arch: this.arch,
-      patterns: tool.asset_patterns,
-    })
-    if (!asset) throw new Error(`no release asset matched ${name} ${this.platform}/${this.arch}`)
+    const configuredUrl = selectEnvironmentValue(tool.urls, this.environment)
+    let asset
+    if (configuredUrl) {
+      asset = {
+        name: safeUrlFileName(configuredUrl, `${name}-${this.environment.key}.zip`),
+        browser_download_url: configuredUrl,
+      }
+      await emitProgress(onProgress, `工具链：${name} 使用 ${this.environment.key} 配置地址`)
+    } else {
+      await emitProgress(onProgress, `工具链：查询 ${tool.repo} 最新版本（${this.environment.key}）`)
+      const release = await this.fetchLatestRelease(tool.repo, normalized.github_api)
+      asset = pickReleaseAsset(name, release.assets || [], {
+        environment: this.environment,
+        platform: this.platform,
+        arch: this.arch,
+        patterns: tool.asset_patterns,
+      })
+    }
+    if (!asset) throw new Error(noCompatibleAssetMessage(name, tool.repo, this.environment))
 
     const archiveDir = path.join(toolsDir, "downloads")
     const extractDir = path.join(toolsDir, name)
@@ -120,12 +176,19 @@ export class ToolInstallerService {
         await emitProgress(onProgress, `工具链：解压 ${asset.name}`)
         await extractArchive(this.spawn, archive, extractDir, {
           timeoutMs: normalized.timeout_ms,
+          platform: this.platform,
         })
 
         const executable = await findExtractedExecutable(extractDir, tool.command, this.platform)
         if (!executable) throw new Error(`${tool.command} executable not found in ${asset.name}`)
 
         const target = await copyToolPayload(name, executable, binDir, tool.command, this.platform)
+        const health = await inspectToolInstall(name, target, binDir, toolsDir, this.platform, {
+          spawn: this.spawn,
+          env: this.env,
+          source: "local",
+        })
+        if (!health.ok) throw new Error(`下载组件校验失败：${health.reason}`)
         await emitProgress(onProgress, `工具链：${name} 安装完成`)
 
         return {
@@ -136,6 +199,7 @@ export class ToolInstallerService {
           asset: asset.name,
           path: target,
           attempts: attempt,
+          environment: this.environment.key,
         }
       } catch (error) {
         lastError = error
@@ -198,27 +262,34 @@ export function normalizeToolsConfig(config = {}) {
       repo: config.bbdown?.repo || "nilaoda/BBDown",
       command: config.bbdown?.command || "BBDown",
       asset_patterns: config.bbdown?.asset_patterns,
+      urls: config.bbdown?.urls,
     },
     ffmpeg: {
       enable: config.ffmpeg?.enable !== false,
       repo: config.ffmpeg?.repo || "BtbN/FFmpeg-Builds",
       command: config.ffmpeg?.command || "ffmpeg",
       asset_patterns: config.ffmpeg?.asset_patterns,
+      urls: config.ffmpeg?.urls,
     },
     aria2: {
       enable: config.aria2?.enable !== false,
       repo: config.aria2?.repo || "aria2/aria2",
       command: config.aria2?.command || "aria2c",
       asset_patterns: config.aria2?.asset_patterns,
+      urls: config.aria2?.urls,
     },
   }
 }
 
 export function pickReleaseAsset(tool, assets = [], options = {}) {
-  const patterns = (options.patterns || defaultAssetPatterns(tool, options.platform, options.arch))
+  const environment = options.environment || detectRuntimeEnvironment({ platform: options.platform, arch: options.arch })
+  const patterns = (options.patterns || defaultAssetPatterns(tool, environment.platform, environment.arch))
     .map(pattern => pattern instanceof RegExp ? pattern : new RegExp(String(pattern), "i"))
+  if (!patterns.length) return null
   const candidates = assets
-    .filter(asset => asset?.name && asset?.browser_download_url && !isDisallowedReleaseAsset(tool, asset.name))
+    .filter(asset => asset?.name
+      && asset?.browser_download_url
+      && !isDisallowedReleaseAsset(tool, asset.name, environment))
     .map(asset => ({
       asset,
       score: scoreReleaseAsset(asset.name, patterns),
@@ -232,23 +303,31 @@ export function defaultAssetPatterns(tool, platform = process.platform, arch = p
   const os = normalizePlatform(platform)
   const cpu = normalizeArch(arch)
   if (tool === "bbdown") {
-    if (os === "windows") return [/BBDown.*(?:win|windows).*x64.*\.zip$/i, /BBDown.*\.zip$/i]
-    if (os === "linux") return [/BBDown.*linux.*(?:x64|amd64).*\.tar\.gz$/i, /BBDown.*linux.*(?:x64|amd64).*\.zip$/i]
-    if (os === "darwin") return [/BBDown.*(?:osx|mac|darwin).*\.zip$/i, /BBDown.*(?:osx|mac|darwin).*\.tar\.gz$/i]
+    const cpuPattern = cpu === "arm64" ? "(?:arm64|aarch64)" : cpu === "x64" ? "(?:x64|amd64)" : ""
+    if (!cpuPattern) return []
+    if (os === "windows") return [new RegExp(`BBDown.*(?:win|windows).*${cpuPattern}.*\\.zip$`, "i")]
+    if (os === "linux") return [new RegExp(`BBDown.*linux.*${cpuPattern}.*\\.(?:zip|tar\\.gz)$`, "i")]
+    if (os === "darwin") return [new RegExp(`BBDown.*(?:osx|mac|darwin).*${cpuPattern}.*\\.(?:zip|tar\\.gz)$`, "i")]
   }
   if (tool === "ffmpeg") {
-    if (os === "windows") return [/ffmpeg(?!.*shared).*win64.*gpl.*\.zip$/i, /ffmpeg(?!.*shared).*windows.*64.*\.zip$/i]
+    if (os === "windows") {
+      if (cpu === "arm64") return [/ffmpeg(?!.*shared).*winarm64.*gpl.*\.zip$/i]
+      if (cpu === "x64") return [/ffmpeg(?!.*shared).*win64.*gpl.*\.zip$/i]
+      return []
+    }
     if (os === "linux") {
       return cpu === "arm64"
         ? [/ffmpeg(?!.*shared).*linuxarm64.*gpl.*\.tar\.xz$/i, /ffmpeg(?!.*shared).*linux.*arm64.*\.tar\.xz$/i]
-        : [/ffmpeg(?!.*shared).*linux64.*gpl.*\.tar\.xz$/i, /ffmpeg(?!.*shared).*linux.*(?:x64|amd64).*\.tar\.xz$/i]
+        : cpu === "x64"
+          ? [/ffmpeg(?!.*shared).*linux64.*gpl.*\.tar\.xz$/i]
+          : []
     }
-    if (os === "darwin") return [/ffmpeg(?!.*shared).*macos64.*gpl.*\.zip$/i, /ffmpeg(?!.*shared).*(?:mac|darwin).*\.zip$/i]
+    if (os === "darwin") return []
   }
   if (tool === "aria2") {
-    if (os === "windows") return [/aria2.*win.*64.*\.zip$/i, /aria2.*windows.*\.zip$/i]
-    if (os === "linux") return [/aria2.*linux.*(?:x64|amd64).*\.tar\.(?:gz|xz)$/i, /aria2.*linux.*\.zip$/i]
-    if (os === "darwin") return [/aria2.*(?:mac|darwin|osx).*\.zip$/i, /aria2.*(?:mac|darwin|osx).*\.tar\.(?:gz|xz)$/i]
+    if (os === "windows" && cpu === "x64") return [/aria2.*win-64bit.*\.zip$/i]
+    if (os === "windows" && cpu === "x86") return [/aria2.*win-32bit.*\.zip$/i]
+    return []
   }
   return [/\.zip$/i, /\.tar\.(?:gz|xz)$/i]
 }
@@ -260,8 +339,14 @@ export function scoreReleaseAsset(name, patterns = []) {
   return -1
 }
 
-export function isDisallowedReleaseAsset(tool, name = "") {
-  return tool === "ffmpeg" && /(?:^|[-_.])shared(?:[-_.]|$)/i.test(String(name || ""))
+export function isDisallowedReleaseAsset(tool, name = "", environment = detectRuntimeEnvironment()) {
+  const value = String(name || "")
+  if (tool === "ffmpeg" && /(?:^|[-_.])shared(?:[-_.]|$)/i.test(value)) return true
+  if (environment.platform !== "android" && /android/i.test(value)) return true
+  if (environment.arch === "x64" && /(?:arm64|aarch64|armv7)/i.test(value)) return true
+  if (environment.arch === "arm64" && /(?:x64|amd64|x86_64|32bit|win32)/i.test(value)) return true
+  if (tool === "aria2" && environment.platform !== "windows" && /\.tar\.(?:gz|xz|bz2)$/i.test(value)) return true
+  return false
 }
 
 export async function findCommandExecutable(command, dirs = [], platform = process.platform) {
@@ -274,21 +359,17 @@ export async function findCommandExecutable(command, dirs = [], platform = proce
 }
 
 export function normalizePlatform(platform = process.platform) {
-  if (platform === "win32") return "windows"
-  if (platform === "darwin") return "darwin"
-  return "linux"
+  return normalizeRuntimePlatform(platform)
 }
 
 export function normalizeArch(arch = process.arch) {
-  if (["x64", "amd64", "x86_64"].includes(arch)) return "x64"
-  if (["arm64", "aarch64"].includes(arch)) return "arm64"
-  return arch
+  return normalizeRuntimeArch(arch)
 }
 
 async function extractArchive(spawnImpl, archive, target, options = {}) {
   const lower = archive.toLowerCase()
   if (lower.endsWith(".zip")) {
-    if (process.platform === "win32") {
+    if (normalizePlatform(options.platform || process.platform) === "windows") {
       const command = `Expand-Archive -LiteralPath '${archive.replace(/'/g, "''")}' -DestinationPath '${target.replace(/'/g, "''")}' -Force`
       await runSpawn(spawnImpl, "powershell.exe", ["-NoProfile", "-Command", command], options)
       return
@@ -327,6 +408,7 @@ function runSpawn(spawnImpl, command, args = [], options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawnImpl(command, args, {
       cwd: options.cwd || rootPath,
+      env: options.env || process.env,
       windowsHide: true,
     })
     let stdout = ""
@@ -361,7 +443,7 @@ function runSpawn(spawnImpl, command, args = [], options = {}) {
 }
 
 export function commandFileName(command, platform = process.platform) {
-  if (platform === "win32" && !/\.exe$/i.test(command)) return `${command}.exe`
+  if (normalizePlatform(platform) === "windows" && !/\.exe$/i.test(command)) return `${command}.exe`
   return command
 }
 
@@ -373,26 +455,41 @@ function resolveMaybeData(value = "") {
   return path.resolve(rootPath, text)
 }
 
-async function inspectToolInstall(name, executable, binDir, toolsDir, platform = process.platform) {
+export async function inspectToolInstall(name, executable, binDir, toolsDir, platform = process.platform, options = {}) {
+  if (!await exists(executable)) return { ok: false, reason: `缺少 ${executable}` }
+  const spawnImpl = options.spawn || spawn
+  const args = name === "bbdown" ? ["--help"] : name === "ffmpeg" ? ["-version"] : ["--version"]
+  try {
+    await runSpawn(spawnImpl, executable, args, {
+      timeoutMs: 15000,
+      env: options.env,
+    })
+  } catch (error) {
+    return { ok: false, reason: `${path.basename(executable)} 无法运行：${error.message}` }
+  }
   if (name !== "ffmpeg") return { ok: true }
-  if (await hasSharedFfmpegMarker(toolsDir)) {
+  if (options.source !== "system" && await hasSharedFfmpegMarker(toolsDir)) {
     return {
       ok: false,
       reason: "检测到旧 ffmpeg shared 下载包",
     }
   }
-  const ffprobe = path.join(binDir, commandFileName("ffprobe", platform))
+  const ffprobe = options.source === "system"
+    ? await findExecutableOnPath("ffprobe", { platform, env: options.env })
+    : path.join(binDir, commandFileName("ffprobe", platform))
   if (!await exists(ffprobe)) {
     return {
       ok: false,
       reason: "缺少 ffprobe",
     }
   }
-  if (!await exists(executable)) {
-    return {
-      ok: false,
-      reason: "缺少 ffmpeg",
-    }
+  try {
+    await runSpawn(spawnImpl, ffprobe, ["-version"], {
+      timeoutMs: 15000,
+      env: options.env,
+    })
+  } catch (error) {
+    return { ok: false, reason: `ffprobe 无法运行：${error.message}` }
   }
   return { ok: true }
 }
@@ -401,7 +498,7 @@ async function copyToolPayload(name, executable, binDir, command, platform = pro
   const target = path.join(binDir, commandFileName(command, platform))
   if (name !== "ffmpeg") {
     await fs.copyFile(executable, target)
-    if (platform !== "win32") await fs.chmod(target, 0o755).catch(() => null)
+    if (normalizePlatform(platform) !== "windows") await fs.chmod(target, 0o755).catch(() => null)
     return target
   }
 
@@ -412,13 +509,13 @@ async function copyToolPayload(name, executable, binDir, command, platform = pro
     const source = path.join(sourceDir, entry.name)
     const dest = path.join(binDir, entry.name)
     await fs.copyFile(source, dest)
-    if (platform !== "win32") await fs.chmod(dest, 0o755).catch(() => null)
+    if (normalizePlatform(platform) !== "windows") await fs.chmod(dest, 0o755).catch(() => null)
   }
   return target
 }
 
 async function ensureExecutablePermissions(name, executable, binDir, platform = process.platform) {
-  if (platform === "win32") return
+  if (normalizePlatform(platform) === "windows") return
   await fs.chmod(executable, 0o755).catch(() => null)
   if (name !== "ffmpeg") return
   for (const command of ["ffmpeg", "ffprobe", "ffplay"]) {
@@ -442,7 +539,7 @@ async function cleanupBrokenInstallArtifacts(archive, extractDir) {
 
 function shouldCopyFfmpegPayloadFile(name, platform = process.platform) {
   const lower = String(name || "").toLowerCase()
-  if (platform === "win32") {
+  if (normalizePlatform(platform) === "windows") {
     return lower.endsWith(".exe") || lower.endsWith(".dll")
   }
   return ["ffmpeg", "ffprobe", "ffplay"].includes(lower)
@@ -473,6 +570,22 @@ async function removeSharedFfmpegArtifacts(toolsDir) {
 
 function safeFileName(value = "asset") {
   return String(value || "asset").replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+}
+
+function safeUrlFileName(url, fallback) {
+  try {
+    return safeFileName(decodeURIComponent(new URL(url).pathname.split("/").filter(Boolean).at(-1) || fallback))
+  } catch {
+    return safeFileName(fallback)
+  }
+}
+
+function noCompatibleAssetMessage(name, repo, environment) {
+  const target = `${environment.platform}/${environment.arch}${environment.platform === "linux" ? `/${environment.libc}` : ""}`
+  if (name === "aria2" && environment.platform !== "windows") {
+    return `aria2 官方 Release 没有 ${target} 预编译包；请安装系统 aria2c，或在 tools.aria2.urls.${environment.key} 配置兼容直链`
+  }
+  return `${repo} 没有匹配 ${name} ${target} 的预编译组件；可在 tools.${name}.urls.${environment.key} 配置兼容直链`
 }
 
 async function exists(file) {

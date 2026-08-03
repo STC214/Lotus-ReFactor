@@ -48,7 +48,12 @@ export class LotusCheckin extends BasePlugin {
         }).ensureVenv({ installRequirements: true })
         return {
           ok: true,
-          value: `${python.mode} · ${python.command}`,
+          value: [
+            python.mode,
+            python.version,
+            python.platform && python.arch ? `${python.platform}/${python.arch}` : "",
+            python.command,
+          ].filter(Boolean).join(" · "),
         }
       }, progress))
       results.push(await runInitStep("test_nine", async () => {
@@ -60,7 +65,12 @@ export class LotusCheckin extends BasePlugin {
         return {
           ok: env.ok,
           value: env.ok
-            ? `${env.python.command} · 模型 ${env.models?.items?.filter(item => item.ok).length || 0}/${env.models?.items?.length || 0}`
+            ? [
+                env.python.version,
+                env.python.platform && env.python.arch ? `${env.python.platform}/${env.python.arch}` : "",
+                env.python.command,
+                `模型 ${env.models?.items?.filter(item => item.ok).length || 0}/${env.models?.items?.length || 0}`,
+              ].filter(Boolean).join(" · ")
             : env.reason,
         }
       }, progress))

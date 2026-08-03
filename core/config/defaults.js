@@ -1,4 +1,4 @@
-export const CURRENT_GLOBAL_CONFIG_VERSION = 2
+export const CURRENT_GLOBAL_CONFIG_VERSION = 3
 
 const ATLAS_BASE_SCOPE_ARGS = Object.freeze([
   "--game", "gi,hsr,zzz",
@@ -28,13 +28,25 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
     ],
     theme_color: "#66ccff",
     background_timeout_ms: 3000,
+    background_pool_enable: true,
+    background_pool_size: 10,
+    background_refresh_cron: "0 10 4 * * ? *",
+    background_download_retries: 4,
+    background_retry_enable: true,
+    background_retry_delays_minutes: [10, 30, 60],
+    background_max_bytes: 20971520,
+    super_resolution_preset: "off",
   },
   scheduler: {
     enable: true,
     plan_generate_cron: "0 0 0 * * ? *",
     run_due_cron: "0 * * * * ? *",
+    catch_up_cron: "0 */10 * * * ? *",
     mode: "fixed",
     fixed_time: "04:30",
+    entry_timeout_minutes: 20,
+    running_timeout_minutes: 30,
+    failure_retry_minutes: [15, 60],
     random: {
       window_start: "00:00",
       window_end: "23:30",
@@ -107,6 +119,7 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
     mode: "venv",
     venv_path: "data/python/venv",
     system_python: "",
+    minimum_version: "3.10",
   },
   tools: {
     auto_install: true,
@@ -119,16 +132,19 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
       enable: true,
       repo: "nilaoda/BBDown",
       command: "BBDown",
+      urls: {},
     },
     ffmpeg: {
       enable: true,
       repo: "BtbN/FFmpeg-Builds",
       command: "ffmpeg",
+      urls: {},
     },
     aria2: {
       enable: true,
       repo: "aria2/aria2",
       command: "aria2c",
+      urls: {},
     },
   },
   remote: {

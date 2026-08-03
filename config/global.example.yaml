@@ -1,4 +1,4 @@
-version: 1
+version: 3
 render:
   background:
     - https://api.lvxiaodong.com/api/ys?return=json
@@ -8,12 +8,29 @@ render:
     - https://api.dujin.org/pic/yuanshen/
   theme_color: "#66ccff"
   background_timeout_ms: 3000
+  background_pool_enable: true
+  background_pool_size: 10
+  background_refresh_cron: "0 10 4 * * ? *"
+  background_download_retries: 4
+  background_retry_enable: true
+  background_retry_delays_minutes:
+    - 10
+    - 30
+    - 60
+  background_max_bytes: 20971520
+  super_resolution_preset: off
 scheduler:
   enable: true
   plan_generate_cron: "0 0 0 * * ? *"
   run_due_cron: "0 * * * * ? *"
+  catch_up_cron: "0 */10 * * * ? *"
   mode: fixed
   fixed_time: "04:30"
+  entry_timeout_minutes: 20
+  running_timeout_minutes: 30
+  failure_retry_minutes:
+    - 15
+    - 60
   random:
     window_start: "00:00"
     window_end: "23:30"
@@ -77,6 +94,7 @@ python:
   mode: venv
   venv_path: data/python/venv
   system_python: ""
+  minimum_version: "3.10"
 tools:
   auto_install: true
   dir: data/tools
@@ -88,14 +106,17 @@ tools:
     enable: true
     repo: nilaoda/BBDown
     command: BBDown
+    urls: {}
   ffmpeg:
     enable: true
     repo: BtbN/FFmpeg-Builds
     command: ffmpeg
+    urls: {}
   aria2:
     enable: true
     repo: aria2/aria2
     command: aria2c
+    urls: {}
 remote:
   enable: false
   require_otp: true

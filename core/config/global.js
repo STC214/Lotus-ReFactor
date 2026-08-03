@@ -210,9 +210,13 @@ function normalizeLegacyNetease(input = {}) {
 }
 
 function normalizeCronFields(config = {}) {
+  if (config.render) {
+    config.render.background_refresh_cron = normalizeQuartzCron(config.render.background_refresh_cron)
+  }
   if (config.scheduler) {
     config.scheduler.plan_generate_cron = normalizeQuartzCron(config.scheduler.plan_generate_cron)
     config.scheduler.run_due_cron = normalizeQuartzCron(config.scheduler.run_due_cron)
+    config.scheduler.catch_up_cron = normalizeQuartzCron(config.scheduler.catch_up_cron)
   }
   if (config.netease_partner) {
     config.netease_partner.schedule = normalizeQuartzCron(config.netease_partner.schedule)

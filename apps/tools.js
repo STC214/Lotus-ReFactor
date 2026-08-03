@@ -49,7 +49,7 @@ export class LotusTools extends BasePlugin {
 export async function renderToolsResult(result, userId) {
   return renderStatusCard({
     title: "工具环境",
-    subtitle: result.binDir || "data/tools/bin",
+    subtitle: [result.environment?.key, result.binDir || "data/tools/bin"].filter(Boolean).join(" · "),
     badge: result.ok ? "完成" : "失败",
     message: result.skipped
       ? "自动安装已关闭。"

@@ -61,6 +61,7 @@ export class MihoyoBbsToolsRunner {
         onCaptchaEvent: options.onCaptchaEvent,
         captchaTimeoutMs: options.captchaTimeoutMs,
         captchaSolver: this.captchaSolver,
+        timeoutMs: options.timeoutMs,
       })
 
       const result = JSON.parse(await fs.readFile(resultFile, "utf8"))
@@ -90,23 +91,59 @@ export class MihoyoBbsToolsRunner {
         timeoutMs: options.captchaTimeoutMs,
         solveCaptcha: options.captchaSolver,
       })
+      const timeoutMs = positiveTimeout(options.timeoutMs, 20 * 60 * 1000)
       let stderr = ""
+      let timedOut = false
+      let settled = false
+      let forceKillTimer = null
+      const timeoutError = () => {
+        const error = new Error(`MihoyoBBSTools runner timed out after ${timeoutMs}ms`)
+        error.code = "LOTUS_RUNNER_TIMEOUT"
+        error.timeoutMs = timeoutMs
+        return error
+      }
+      const timeout = setTimeout(() => {
+        timedOut = true
+        child.kill("SIGTERM")
+        forceKillTimer = setTimeout(() => {
+          child.kill("SIGKILL")
+          finish(reject, timeoutError())
+        }, positiveTimeout(options.killGraceMs, 5000))
+        forceKillTimer.unref?.()
+      }, timeoutMs)
+      timeout.unref?.()
+      const finish = (fn, value) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timeout)
+        if (forceKillTimer) clearTimeout(forceKillTimer)
+        stopCaptcha()
+        fn(value)
+      }
       child.stderr?.on("data", chunk => {
         stderr += decodeProcessChunk(chunk)
       })
-      child.on("error", reject)
+      child.on("error", error => finish(reject, error))
       child.on("close", code => {
-        stopCaptcha()
+        if (timedOut) {
+          finish(reject, timeoutError())
+          return
+        }
         if (code === 0 || code === 1) {
-          resolve({ code, stderr })
+          finish(resolve, { code, stderr })
           return
         }
         const error = new Error(`MihoyoBBSTools runner exited with code ${code}`)
         error.stderr = stderr
-        reject(error)
+        finish(reject, error)
       })
     })
   }
+}
+
+function positiveTimeout(value, fallback) {
+  const timeout = Number(value)
+  return Number.isFinite(timeout) && timeout > 0 ? timeout : fallback
 }
 
 export function watchCaptchaRequests(captchaDir, options = {}) {

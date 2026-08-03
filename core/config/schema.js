@@ -4,6 +4,7 @@ const NOTIFY_PREFERS = new Set(["private", "group"])
 const PYTHON_MODES = new Set(["venv", "system"])
 const PERMISSION_POLICIES = new Set(["allow", "deny", "inherit", "master_only"])
 const BILI_MULTI_PAGE_POLICIES = new Set(["zip", "all", "first"])
+const SUPER_RESOLUTION_PRESETS = new Set(["off", "low", "medium", "high", "ultra"])
 
 export function validateProfile(profile) {
   const errors = []
@@ -109,7 +110,7 @@ function validateSchedule(schedule = {}, errors) {
   if (!SCHEDULE_MODES.has(schedule.mode)) {
     errors.push("schedule.mode must be inherit/random/fixed")
   }
-  if (schedule.mode === "fixed" && schedule.fixed_time && !/^\d{2}:\d{2}$/.test(schedule.fixed_time)) {
+  if (schedule.mode === "fixed" && schedule.fixed_time && !isTime(schedule.fixed_time)) {
     errors.push("schedule.fixed_time must be HH:mm")
   }
 }
@@ -160,6 +161,24 @@ function validateRenderConfig(render = {}, errors) {
   if (!isPositiveInteger(render.background_timeout_ms)) {
     errors.push("render.background_timeout_ms must be a positive integer")
   }
+  if (typeof render.background_pool_enable !== "boolean") errors.push("render.background_pool_enable must be boolean")
+  if (!isPositiveInteger(render.background_pool_size) || Number(render.background_pool_size) > 50) {
+    errors.push("render.background_pool_size must be an integer from 1 to 50")
+  }
+  if (!isString(render.background_refresh_cron)) errors.push("render.background_refresh_cron must be a string")
+  if (!isPositiveInteger(render.background_download_retries) || Number(render.background_download_retries) > 10) {
+    errors.push("render.background_download_retries must be an integer from 1 to 10")
+  }
+  if (typeof render.background_retry_enable !== "boolean") errors.push("render.background_retry_enable must be boolean")
+  if (!Array.isArray(render.background_retry_delays_minutes)
+    || !render.background_retry_delays_minutes.length
+    || !render.background_retry_delays_minutes.every(value => Number(value) > 0 && Number(value) <= 1440)) {
+    errors.push("render.background_retry_delays_minutes must contain numbers greater than 0 and at most 1440")
+  }
+  if (!isPositiveInteger(render.background_max_bytes)) errors.push("render.background_max_bytes must be a positive integer")
+  if (!SUPER_RESOLUTION_PRESETS.has(render.super_resolution_preset)) {
+    errors.push("render.super_resolution_preset must be off/low/medium/high/ultra")
+  }
 }
 
 function validateGlobalScheduler(scheduler = {}, errors) {
@@ -170,10 +189,20 @@ function validateGlobalScheduler(scheduler = {}, errors) {
   if (typeof scheduler.enable !== "boolean") errors.push("scheduler.enable must be boolean")
   if (!isString(scheduler.plan_generate_cron)) errors.push("scheduler.plan_generate_cron must be a string")
   if (!isString(scheduler.run_due_cron)) errors.push("scheduler.run_due_cron must be a string")
+  if (!isString(scheduler.catch_up_cron)) errors.push("scheduler.catch_up_cron must be a string")
   if (!GLOBAL_SCHEDULE_MODES.has(scheduler.mode)) {
     errors.push("scheduler.mode must be random/fixed")
   }
   if (!isTime(scheduler.fixed_time)) errors.push("scheduler.fixed_time must be HH:mm")
+  if (!isPositiveInteger(scheduler.entry_timeout_minutes)) errors.push("scheduler.entry_timeout_minutes must be a positive integer")
+  if (!isPositiveInteger(scheduler.running_timeout_minutes)) errors.push("scheduler.running_timeout_minutes must be a positive integer")
+  if (Number(scheduler.running_timeout_minutes) <= Number(scheduler.entry_timeout_minutes)) {
+    errors.push("scheduler.running_timeout_minutes must be greater than entry_timeout_minutes")
+  }
+  if (!Array.isArray(scheduler.failure_retry_minutes)
+    || !scheduler.failure_retry_minutes.every(value => Number(value) > 0 && Number(value) <= 1440)) {
+    errors.push("scheduler.failure_retry_minutes must contain numbers greater than 0 and at most 1440")
+  }
 
   if (!isObject(scheduler.random)) {
     errors.push("scheduler.random must be an object")
@@ -296,6 +325,9 @@ function validatePythonConfig(python = {}, errors) {
   if (!PYTHON_MODES.has(python.mode)) errors.push("python.mode must be venv/system")
   if (!isString(python.venv_path)) errors.push("python.venv_path must be a string")
   if (!isString(python.system_python)) errors.push("python.system_python must be a string")
+  if (!isString(python.minimum_version) || !/^\d+\.\d+(?:\.\d+)?$/.test(python.minimum_version)) {
+    errors.push("python.minimum_version must be a version string such as 3.10")
+  }
 }
 
 function validateToolsConfig(tools = {}, errors) {
@@ -324,6 +356,13 @@ function validateToolConfig(tool = {}, prefix, errors) {
   if (typeof tool.enable !== "boolean") errors.push(`${prefix}.enable must be boolean`)
   for (const field of ["repo", "command"]) {
     if (!isString(tool[field])) errors.push(`${prefix}.${field} must be a string`)
+  }
+  if (!isObject(tool.urls)) {
+    errors.push(`${prefix}.urls must be an object`)
+  } else {
+    for (const [key, value] of Object.entries(tool.urls)) {
+      if (!isString(value)) errors.push(`${prefix}.urls.${key} must be a string`)
+    }
   }
 }
 

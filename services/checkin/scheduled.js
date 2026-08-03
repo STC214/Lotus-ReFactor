@@ -2,7 +2,7 @@ import { loadGlobalConfig } from "../../core/config/global.js"
 import { createCaptchaEventReporter } from "../../core/captcha/notify.js"
 import { loadProfile } from "../../core/config/profile.js"
 import { renderTemplate } from "../../core/render/service.js"
-import { SchedulerService, dateString, nextDateString } from "../../core/scheduler/service.js"
+import { SchedulerService, dateString, nextDateString, normalizeSchedulerConfig } from "../../core/scheduler/service.js"
 import { formatLocalIso } from "../../core/time.js"
 import { notifyProfile } from "../../core/transport/notify.js"
 import { ProfileSigninService, renderSigninFailure } from "./profileSignin.js"
@@ -18,6 +18,7 @@ export class ScheduledSigninService {
     this.bot = options.bot
     this.now = options.now || (() => new Date())
     this.renderTemplate = options.renderTemplate || renderTemplate
+    this.loadProfile = options.loadProfile || loadProfile
   }
 
   async runDue(options = {}) {
@@ -27,28 +28,53 @@ export class ScheduledSigninService {
   }
 
   async runDuePlan(planDate, now, options = {}) {
-    const plan = await this.scheduler.getPlan(planDate)
+    const config = options.config || await loadGlobalConfig()
+    const schedulerConfig = normalizeSchedulerConfig(config.scheduler || this.scheduler.config || {})
+    let plan = await this.scheduler.getPlan(planDate)
+    let createdPlan = false
     if (!plan) {
-      return {
-        ok: true,
-        date: planDate,
-        count: 0,
-        results: [],
-        reason: "plan_not_found",
-      }
+      plan = await this.scheduler.getOrCreatePlan(planDate, { profiles: options.profiles })
+      createdPlan = true
     }
+    const recoveredEntries = recoverStaleRunningEntries(plan, now, schedulerConfig.running_timeout_minutes)
+    if (recoveredEntries.length) {
+      await this.scheduler.savePlan(plan)
+      globalThis.logger?.warn?.(`[Lotus-Plugin] recovered ${recoveredEntries.length} stale scheduled checkin entr${recoveredEntries.length === 1 ? "y" : "ies"}`)
+    }
+    const notificationRetries = options.notify === false
+      ? []
+      : await this.retryResultNotifications(plan, now, schedulerConfig, options)
     const dueEntries = plan.entries.filter(entry => isDue(entry, now))
     const results = []
     for (const entry of dueEntries) {
-      entry.runningAt = formatLocalIso()
+      entry.attempts = Number(entry.attempts || 0) + 1
+      entry.runningAt = formatLocalIso(now)
+      entry.lastAttemptAt = entry.runningAt
+      delete entry.nextRetryAt
       await this.scheduler.savePlan(plan)
-      const outcome = await this.runEntry(entry, options)
-      entry.done = true
-      entry.doneAt = formatLocalIso()
+      const outcome = await this.runEntry(entry, {
+        ...options,
+        timeoutMs: schedulerConfig.entry_timeout_minutes * 60 * 1000,
+      })
       entry.ok = outcome.ok
       entry.stage = outcome.stage
       entry.message = outcome.message || outcome.error?.message || ""
       delete entry.runningAt
+      const retryDelay = !outcome.ok && isRetryableOutcome(outcome)
+        ? schedulerConfig.failure_retry_minutes[entry.attempts - 1]
+        : undefined
+      const retryAt = Number.isFinite(retryDelay)
+        ? new Date(now.getTime() + retryDelay * 60 * 1000)
+        : null
+      if (retryAt && dateString(retryAt) === planDate) {
+        entry.done = false
+        entry.nextRetryAt = formatLocalIso(retryAt)
+      } else {
+        entry.done = true
+        entry.doneAt = formatLocalIso(now)
+        delete entry.nextRetryAt
+      }
+      updateResultNotificationState(entry, outcome, now, schedulerConfig, options)
       await this.scheduler.savePlan(plan)
       results.push({ entry: { ...entry }, outcome })
     }
@@ -57,31 +83,74 @@ export class ScheduledSigninService {
       date: planDate,
       count: results.length,
       results,
+      createdPlan,
+      recovered: recoveredEntries.length,
+      notificationRetries,
     }
+  }
+
+  async retryResultNotifications(plan, now, schedulerConfig, options = {}) {
+    const results = []
+    for (const entry of plan.entries || []) {
+      if (!isResultNotificationDue(entry, now)) continue
+      const profile = await this.loadProfile(entry.qq, entry.profileId).catch(() => null)
+      const attempt = Number(entry.notificationAttempts || 1) + 1
+      entry.notificationAttempts = attempt
+      let sent
+      try {
+        if (!profile) throw new Error("profile not found")
+        sent = await this.notify(profile, scheduledResultText(entry), { bot: options.bot || this.bot })
+      } catch (error) {
+        sent = { ok: false, reason: error.message, error }
+      }
+      entry.resultNotified = Boolean(sent?.ok)
+      entry.lastNotificationAt = formatLocalIso(now)
+      if (entry.resultNotified) {
+        delete entry.notificationRetryAt
+      } else {
+        const delay = schedulerConfig.failure_retry_minutes[attempt - 1]
+        const retryAt = Number.isFinite(delay) ? new Date(now.getTime() + delay * 60 * 1000) : null
+        if (retryAt && dateString(retryAt) === plan.date) {
+          entry.notificationRetryAt = formatLocalIso(retryAt)
+        } else {
+          delete entry.notificationRetryAt
+          entry.notificationExhaustedAt = formatLocalIso(now)
+        }
+      }
+      results.push({ entry: { ...entry }, sent })
+    }
+    if (results.length) await this.scheduler.savePlan(plan)
+    return results
   }
 
   async notifyPlan(plan, options = {}) {
     const results = []
     for (const entry of plan.entries) {
       if (entry.notified && !options.force) continue
-      const profile = await loadProfile(entry.qq, entry.profileId).catch(() => null)
+      const profile = await this.loadProfile(entry.qq, entry.profileId).catch(() => null)
       if (!profile) continue
-      const image = await this.renderTemplate("schedule-notice", {
-        title: profile.user?.nickname || `QQ ${entry.qq}`,
-        subtitle: `${plan.date} · profile ${entry.profileId}`,
-        badge: entry.mode,
-        message: `明日自动签到将在 ${entry.time} 左右执行。`,
-        avatar: qqAvatar(entry.qq),
-        userId: entry.qq,
-        items: [
-          { label: "签到时间", value: entry.time },
-          { label: "模式", value: entry.mode },
-          { label: "日期", value: plan.date },
-        ],
-      }, { saveId: `lotus-schedule-notice-${entry.qq}-${entry.profileId}` })
-      const sent = await this.notify(profile, image, { bot: options.bot || this.bot })
-      entry.notified = sent.ok
-      results.push({ entry: { ...entry }, sent })
+      try {
+        const image = await this.renderTemplate("schedule-notice", {
+          title: profile.user?.nickname || `QQ ${entry.qq}`,
+          subtitle: `${plan.date} · profile ${entry.profileId}`,
+          badge: entry.mode,
+          message: `明日自动签到将在 ${entry.time} 左右执行。`,
+          avatar: qqAvatar(entry.qq),
+          userId: entry.qq,
+          items: [
+            { label: "签到时间", value: entry.time },
+            { label: "模式", value: entry.mode },
+            { label: "日期", value: plan.date },
+          ],
+        }, { saveId: `lotus-schedule-notice-${entry.qq}-${entry.profileId}` })
+        const sent = await this.notify(profile, image, { bot: options.bot || this.bot })
+        entry.notified = sent.ok
+        results.push({ entry: { ...entry }, sent })
+      } catch (error) {
+        entry.notified = false
+        results.push({ entry: { ...entry }, sent: { ok: false, reason: error.message, error } })
+        globalThis.logger?.warn?.(`[Lotus-Plugin] schedule notice failed for ${entry.qq}/P${entry.profileId}: ${error.message}`)
+      }
     }
     await this.scheduler.savePlan(plan)
     return results
@@ -123,7 +192,7 @@ export class ScheduledSigninService {
         title: profile.user?.nickname || `QQ ${profile.user?.qq || ""}`,
         subtitle: `${item.date} · profile ${profile.profile?.id || 1}`,
         badge: "补入",
-        message: `已加入今日补位计划，将在 ${item.entry.time} 左右执行。`,
+        message: `已加入${item.date === dateString(now) ? "今日" : "明日"}补位计划，将在 ${item.entry.time} 左右执行。`,
         avatar: qqAvatar(profile.user?.qq),
         userId: profile.user?.qq,
         items: [
@@ -138,7 +207,7 @@ export class ScheduledSigninService {
   }
 
   async runEntry(entry, options = {}) {
-    let profile = await loadProfile(entry.qq, entry.profileId).catch(() => null)
+    let profile = await this.loadProfile(entry.qq, entry.profileId).catch(() => null)
     try {
       const captchaReporter = createCaptchaEventReporter({
         send: async message => {
@@ -157,16 +226,23 @@ export class ScheduledSigninService {
         profileId: entry.profileId,
         profile,
         refresh: true,
+        source: "scheduled",
+        timeoutMs: options.timeoutMs,
         installRequirements: false,
         onCaptchaEvent: async event => {
           await captchaReporter(event).catch(error => {
-            logger?.warn?.(`[Lotus-Plugin] captcha notify failed: ${error.message}`)
+            globalThis.logger?.warn?.(`[Lotus-Plugin] captcha notify failed: ${error.message}`)
           })
         },
       })
       profile = outcome.profile || profile
       if (options.notify !== false && profile) {
-        await this.notify(profile, outcome.image || outcome.message, { bot: options.bot || this.bot })
+        try {
+          outcome.notification = await this.notify(profile, outcome.image || outcome.message, { bot: options.bot || this.bot })
+        } catch (error) {
+          outcome.notification = { ok: false, reason: error.message, error }
+          globalThis.logger?.warn?.(`[Lotus-Plugin] scheduled signin result notify failed: ${error.message}`)
+        }
       }
       return outcome
     } catch (error) {
@@ -174,17 +250,32 @@ export class ScheduledSigninService {
         user: { qq: entry.qq },
         profile: { id: entry.profileId, notify: { prefer: "private", fallback_groups: [] } },
       }
-      const image = await renderSigninFailure({
-        stage: "schedule",
-        profile: fallbackProfile,
-        error,
-        message: "计划签到执行失败。",
-        advice: "检查 profile 配置文件是否存在，并确认签到环境已经初始化。",
-      })
-      if (options.notify !== false) {
-        await this.notify(fallbackProfile, image, { bot: options.bot || this.bot }).catch(notifyError => {
-          logger?.warn?.(`[Lotus-Plugin] scheduled signin notify failed: ${notifyError.message}`)
+      let image = null
+      try {
+        image = await renderSigninFailure({
+          stage: "schedule",
+          profile: fallbackProfile,
+          error,
+          message: "计划签到执行失败。",
+          advice: "检查 profile 配置文件是否存在，并确认签到环境已经初始化。",
         })
+      } catch (renderError) {
+        globalThis.logger?.warn?.(`[Lotus-Plugin] scheduled signin failure render failed: ${renderError.message}`)
+      }
+      if (options.notify !== false) {
+        const notification = await this.notify(fallbackProfile, image || `[荷花插件]计划签到失败：${error.message}`, { bot: options.bot || this.bot }).catch(notifyError => {
+          globalThis.logger?.warn?.(`[Lotus-Plugin] scheduled signin notify failed: ${notifyError.message}`)
+          return { ok: false, reason: notifyError.message, error: notifyError }
+        })
+        return {
+          ok: false,
+          stage: "schedule",
+          profile: fallbackProfile,
+          error,
+          image,
+          notification,
+          message: error.message,
+        }
       }
       return {
         ok: false,
@@ -205,7 +296,59 @@ function qqAvatar(qq) {
 
 function isDue(entry, now) {
   if (entry.done || entry.runningAt) return false
+  if (entry.nextRetryAt) {
+    const retryAt = new Date(entry.nextRetryAt)
+    if (!Number.isNaN(retryAt.getTime()) && retryAt.getTime() > now.getTime()) return false
+  }
   return timeToMinute(entry.time) <= now.getHours() * 60 + now.getMinutes()
+}
+
+function recoverStaleRunningEntries(plan, now, timeoutMinutes) {
+  const recovered = []
+  const cutoff = now.getTime() - timeoutMinutes * 60 * 1000
+  for (const entry of plan.entries || []) {
+    if (!entry.runningAt || entry.done) continue
+    const runningAt = new Date(entry.runningAt)
+    if (!Number.isNaN(runningAt.getTime()) && runningAt.getTime() > cutoff) continue
+    delete entry.runningAt
+    entry.recoveryCount = Number(entry.recoveryCount || 0) + 1
+    entry.recoveredAt = formatLocalIso(now)
+    recovered.push(entry)
+  }
+  return recovered
+}
+
+function isRetryableOutcome(outcome = {}) {
+  return ["checkin", "runner", "schedule", "timeout"].includes(outcome.stage)
+}
+
+function updateResultNotificationState(entry, outcome, now, schedulerConfig, options = {}) {
+  if (options.notify === false || !outcome.notification) return
+  entry.notificationAttempts = 1
+  entry.lastNotificationAt = formatLocalIso(now)
+  entry.resultNotified = Boolean(outcome.notification.ok)
+  if (entry.resultNotified) {
+    delete entry.notificationRetryAt
+    return
+  }
+  const delay = schedulerConfig.failure_retry_minutes[0]
+  const retryAt = Number.isFinite(delay) ? new Date(now.getTime() + delay * 60 * 1000) : null
+  if (retryAt && dateString(retryAt) === dateString(now)) {
+    entry.notificationRetryAt = formatLocalIso(retryAt)
+  } else {
+    entry.notificationExhaustedAt = formatLocalIso(now)
+  }
+}
+
+function isResultNotificationDue(entry, now) {
+  if (!entry.done || entry.resultNotified !== false || !entry.notificationRetryAt) return false
+  const retryAt = new Date(entry.notificationRetryAt)
+  return !Number.isNaN(retryAt.getTime()) && retryAt.getTime() <= now.getTime()
+}
+
+function scheduledResultText(entry) {
+  const status = entry.ok ? "成功" : "失败"
+  return `[荷花插件]定时签到${status}：QQ ${entry.qq} / Profile ${entry.profileId}；阶段 ${entry.stage || "checkin"}；${entry.message || "无详细信息"}`
 }
 
 function timeToMinute(value = "00:00") {

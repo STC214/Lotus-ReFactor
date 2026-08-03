@@ -3,6 +3,7 @@ import { installLotusRuntimeInterception } from "./services/intercept/runtime.js
 import { ensureGlobalConfig } from "./core/config/global.js"
 import { autoStartTestNineServer } from "./services/testNine/server.js"
 import { syncTrackedSubmodules } from "./services/pluginUpdate/service.js"
+import { ensureBackgroundPool } from "./core/render/background.js"
 
 const pluginName = "Lotus-Plugin"
 const appsDir = new URL("./apps/", import.meta.url)
@@ -31,6 +32,12 @@ await syncTrackedSubmodules().then(result => {
 
 autoStartTestNineServer().catch(error => {
   logger?.warn?.(`[${pluginName}] test_nine auto start failed: ${error.message}`)
+})
+
+ensureBackgroundPool(null, { cleanupExisting: true }).then(files => {
+  logger?.mark?.(`[${pluginName}] 本地背景池就绪：${files.length} 张`)
+}).catch(error => {
+  logger?.warn?.(`[${pluginName}] 首次背景本地化失败，将在下次启动或定时任务重试：${error.message}`)
 })
 
 const files = await fs.readdir(appsDir).catch(err => {

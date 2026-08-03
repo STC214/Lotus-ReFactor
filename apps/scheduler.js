@@ -189,6 +189,14 @@ export class LotusScheduler extends BasePlugin {
     const date = nextDateString(now)
     const existing = await scheduler.getPlan(date)
     if (existing) {
+      const pendingNotices = existing.entries.filter(entry => !entry.notified).length
+      if (pendingNotices && globalConfig.scheduler?.random?.notify_before !== false) {
+        return new ScheduledSigninService({ scheduler }).ensureTomorrowPlanAndNotify({
+          config: globalConfig,
+          date,
+          bot: globalThis.Bot,
+        })
+      }
       return {
         ok: true,
         skipped: true,
@@ -274,7 +282,7 @@ export class LotusScheduler extends BasePlugin {
     }
     const result = await new ScheduledSigninService({
       scheduler: new SchedulerService({ config: globalConfig.scheduler }),
-    }).runDue(options)
+    }).runDue({ ...options, config: globalConfig })
     if (result.count) {
       logger?.mark?.(`[Lotus-Plugin] scheduled checkin executed: ${result.count}`)
     }
