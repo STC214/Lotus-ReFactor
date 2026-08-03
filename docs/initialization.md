@@ -37,6 +37,8 @@
 
 默认使用 venv，不污染系统 Python。高级用户可以在全局配置里切换为 system Python。
 
+在 Debian/TRSS 镜像缺少 `ensurepip` 时，初始化器会自动切换到无 pip venv，再使用官方 `get-pip.py` 补齐 pip。TestNine 模型下载采用远端大小校验、`.part` 临时文件、三次重试和原子替换；截断文件不会被标记为安装完成。
+
 ## 下载工具
 
 发送：
@@ -50,5 +52,7 @@
 ffmpeg 会下载完整编译包，而不是只拷贝 `ffmpeg` 一个文件；Windows 会识别 `.exe`，Linux/macOS 会识别无后缀可执行文件。解压后会把 BBDown、ffmpeg、ffprobe、ffplay、aria2c 等可执行文件加入插件工具目录，并在非 Windows 系统上自动补 `chmod +x`。
 
 如果下载目录里存在不完整 shared 包、损坏压缩包或 `.part` 临时文件，初始化会按损坏状态重新下载并修复。
+
+Linux 最小镜像没有 `unzip` 时会自动使用 Python 标准库解压 ZIP；没有 `tar` 时同样可回退到 Python。回退解压会拒绝路径穿越、链接和设备类 tar 成员。Linux 的 aria2 官方 Release 不提供通用预编译包，因此应预装系统 `aria2c` 或配置与当前环境完全匹配的直链。
 
 更多说明见 [工具链-BBDown/ffmpeg/aria2](features/tools.md)。

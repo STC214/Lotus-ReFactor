@@ -8,6 +8,7 @@ import { pipeline } from "node:stream/promises"
 import { createGunzip } from "node:zlib"
 import YAML from "yaml"
 import { isCookieRefreshableResponse } from "../../core/captcha/mysHandler.js"
+import { loadGlobalConfig } from "../../core/config/global.js"
 
 import {
   LEGACY_CAPTCHA_HANDLER_NAMESPACES,
@@ -30,25 +31,43 @@ let imageSummaryLines = []
 let imageSummaryPreparing = null
 let imageSummaryNextPrepareAt = 0
 
-export async function installLotusRuntimeInterception() {
+export async function installLotusRuntimeInterception(options = {}) {
   if (runtimeInstalled) return { ok: true, already: true }
+
+  const config = options.config || await loadGlobalConfig()
   runtimeInstalled = true
+  const conflictTakeover = config.compatibility?.conflict_takeover === true
+
+  const conflictTasks = conflictTakeover
+    ? [
+        ensureYunzaiConflictDisableConfig(),
+        patchRuntimeDisableConfig(),
+        patchPluginsLoader(),
+      ]
+    : [
+        cleanupLegacyYunzaiConflictDisableConfig(),
+        Promise.resolve({ ok: true, skipped: true, reason: "conflict_takeover_disabled" }),
+        Promise.resolve({ ok: true, skipped: true, reason: "conflict_takeover_disabled" }),
+      ]
 
   const results = await Promise.allSettled([
-    ensureYunzaiConflictDisableConfig(),
-    patchRuntimeDisableConfig(),
-    patchPluginsLoader(),
+    ...conflictTasks,
     patchGenshinMysInfoCookieRefresh(),
     installGlobalImageSummary(),
   ])
 
   return {
     ok: results.every(item => item.status === "fulfilled" && item.value?.ok !== false),
+    conflictTakeover,
     results,
   }
 }
 
-export async function installLotusCaptchaHandlerOverride(handlerModule = null) {
+export async function installLotusCaptchaHandlerOverride(handlerModule = null, options = {}) {
+  const config = options.config || await loadGlobalConfig()
+  if (config.compatibility?.conflict_takeover !== true) {
+    return { ok: true, skipped: true, reason: "conflict_takeover_disabled" }
+  }
   const Handler = handlerModule || await importYunzaiDefault("../../../../lib/plugins/handler.js")
   if (!Handler?.add || !Handler?.del) {
     return { ok: false, reason: "handler module unavailable" }
@@ -80,6 +99,49 @@ export async function installLotusCaptchaHandlerOverride(handlerModule = null) {
   }
 
   return { ok: true }
+}
+
+export async function cleanupLegacyYunzaiConflictDisableConfig(options = {}) {
+  const file = options.file || path.join(process.cwd(), "config", "config", "group.yaml")
+  const ownedNames = options.disabledNames || LOTUS_CONFIG_DISABLED_PLUGIN_NAMES
+
+  try {
+    let config
+    try {
+      config = YAML.parse(await fs.readFile(file, "utf8")) || {}
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        return { ok: true, skipped: true, file, reason: "config_missing" }
+      }
+      throw error
+    }
+
+    const currentDisable = Array.isArray(config?.default?.disable)
+      ? config.default.disable.map(String)
+      : []
+    const hasLegacySignature = ownedNames.length > 0
+      && ownedNames.every(name => currentDisable.includes(String(name)))
+    if (!hasLegacySignature) {
+      return { ok: true, skipped: true, file, reason: "legacy_signature_not_found" }
+    }
+
+    const owned = new Set(ownedNames.map(String))
+    const nextDisable = currentDisable.filter(name => !owned.has(name))
+    config.default.disable = nextDisable
+    await fs.writeFile(file, YAML.stringify(config), "utf8")
+    clearYunzaiCfgCache(options.cfg)
+    logInfo(`已清理 Lotus 旧版自动写入的冲突禁用项：${currentDisable.length - nextDisable.length} 项`)
+    return {
+      ok: true,
+      file,
+      changed: true,
+      removed: currentDisable.filter(name => owned.has(name)),
+      disabled: nextDisable,
+    }
+  } catch (error) {
+    logWarn(`清理 Lotus 旧版冲突禁用配置失败：${error?.message || error}`)
+    return { ok: false, file, reason: error?.message || String(error) }
+  }
 }
 
 export async function installGlobalImageSummary() {

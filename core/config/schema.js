@@ -54,6 +54,7 @@ export function validateGlobalConfig(config) {
   }
 
   validateRenderConfig(config.render, errors)
+  validateCompatibilityConfig(config.compatibility, errors)
   validateGlobalScheduler(config.scheduler, errors)
   validateCaptchaConfig(config.captcha, errors)
   validatePythonConfig(config.python, errors)
@@ -363,6 +364,16 @@ function validateToolConfig(tool = {}, prefix, errors) {
     for (const [key, value] of Object.entries(tool.urls)) {
       if (!isString(value)) errors.push(`${prefix}.urls.${key} must be a string`)
     }
+  }
+}
+
+function validateCompatibilityConfig(compatibility = {}, errors) {
+  if (!isObject(compatibility)) {
+    errors.push("compatibility must be an object")
+    return
+  }
+  if (typeof compatibility.conflict_takeover !== "boolean") {
+    errors.push("compatibility.conflict_takeover must be boolean")
   }
 }
 

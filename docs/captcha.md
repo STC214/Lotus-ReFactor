@@ -50,4 +50,4 @@ https://gt.lotusshared.cn/GTest/register?key=114514
 - challenge 已被使用，正在重新请求 challenge。
 - 全部方案失败，生成手动过码链接。
 
-JS 业务、Python 签到 runner 和全局 `mys.req.err` handler 都使用同一套 provider 链。
+JS 业务和 Python 签到 runner 使用同一套 provider 链。全局 `mys.req.err` handler 仅在“接管冲突功能”开启时替换旧 handler；默认共存模式不会删除其他插件的 handler。

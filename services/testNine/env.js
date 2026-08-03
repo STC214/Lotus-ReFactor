@@ -7,7 +7,7 @@ import { pipeline } from "node:stream/promises"
 import fsSync from "node:fs"
 import { loadGlobalConfig } from "../../core/config/global.js"
 import { resolveData, rootPath } from "../../core/path.js"
-import { runProcess } from "../python/env.js"
+import { createPythonVenv, ensurePythonPip, runProcess } from "../python/env.js"
 import { detectPythonEnvironment } from "../runtime/environment.js"
 import { formatLocalIso } from "../../core/time.js"
 
@@ -73,6 +73,14 @@ export class TestNineEnvService {
     const venvPath = resolveMaybeData(config.venv_path)
     await this.ensureVenv(venvPath, { onProgress })
     const python = await this.getPythonExecutable()
+    if (installRequirements) {
+      await ensurePythonPip({
+        python,
+        spawnImpl: this.spawn,
+        fetchImpl: this.fetch,
+        onProgress,
+      })
+    }
     await emitProgress(onProgress, "test_nine：检查依赖指纹")
     const fingerprint = await this.getFingerprintStatus(venvPath, config)
 
@@ -134,8 +142,12 @@ export class TestNineEnvService {
     })
     await emitProgress(onProgress, `test_nine：创建虚拟环境 ${venvPath}`)
     await emitProgress(onProgress, `test_nine：使用 ${systemPython.executable} (${systemPython.version}, ${systemPython.platform}/${systemPython.arch})`)
-    await runProcess(this.spawn, systemPython.command, [...systemPython.args, "-m", "venv", venvPath], {
+    await createPythonVenv({
+      spawnImpl: this.spawn,
+      systemPython,
+      venvPath,
       cwd: rootPath,
+      onProgress,
     })
     await emitProgress(onProgress, "test_nine：虚拟环境创建完成")
   }
@@ -149,14 +161,20 @@ export class TestNineEnvService {
     for (const file of normalized.model_files) {
       const target = path.join(modelDir, file)
       if (await exists(target)) {
-        await emitProgress(onProgress, `test_nine：模型已存在 ${file}`)
-        items.push({ file, ok: true, status: "exists", path: target })
-        continue
+        const expectedSize = await this.remoteModelSize(normalized.model_repo, file).catch(() => 0)
+        const actualSize = Number((await fs.stat(target)).size)
+        if (!expectedSize || actualSize === expectedSize) {
+          await emitProgress(onProgress, `test_nine：模型已存在 ${file}`)
+          items.push({ file, ok: true, status: "exists", path: target, size: actualSize, expectedSize })
+          continue
+        }
+        await emitProgress(onProgress, `test_nine：模型文件不完整 ${file} (${actualSize}/${expectedSize})，重新下载`)
+        await fs.rm(target, { force: true })
       }
       await emitProgress(onProgress, `test_nine：下载模型 ${file}`)
-      await this.downloadModel(normalized.model_repo, file, target)
+      const download = await this.downloadModel(normalized.model_repo, file, target)
       await emitProgress(onProgress, `test_nine：模型下载完成 ${file}`)
-      items.push({ file, ok: true, status: "downloaded", path: target })
+      items.push({ file, ok: true, status: "downloaded", path: target, ...download })
     }
     return {
       ok: items.every(item => item.ok),
@@ -190,19 +208,54 @@ export class TestNineEnvService {
   async downloadModel(repo, file, target) {
     if (typeof this.fetch !== "function") throw new Error("fetch is unavailable")
     const url = `https://huggingface.co/${repo}/resolve/main/${encodeURIComponentPath(file)}`
+    const expectedSize = await this.remoteModelSize(repo, file).catch(() => 0)
+    await fs.mkdir(path.dirname(target), { recursive: true })
+    let lastError = null
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const temp = `${target}.${process.pid}.${Date.now()}.${attempt}.part`
+      try {
+        const response = await this.fetch(url, {
+          headers: { "User-Agent": "Lotus-Plugin test_nine setup" },
+          cache: "no-store",
+        })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const responseSize = Number(response.headers?.get?.("content-length") || 0)
+        if (response.body && typeof response.body.getReader === "function") {
+          await pipeline(Readable.fromWeb(response.body), fsSync.createWriteStream(temp))
+        } else {
+          await fs.writeFile(temp, Buffer.from(await response.arrayBuffer()))
+        }
+        const actualSize = Number((await fs.stat(temp)).size)
+        const requiredSize = expectedSize || responseSize
+        if (requiredSize && actualSize !== requiredSize) {
+          throw new Error(`size mismatch ${actualSize}/${requiredSize}`)
+        }
+        await replaceFile(temp, target)
+        return { size: actualSize, expectedSize: requiredSize || actualSize, attempts: attempt }
+      } catch (error) {
+        lastError = error
+        await fs.rm(temp, { force: true }).catch(() => {})
+      }
+    }
+    throw new Error(`download test_nine model ${file} failed after 3 attempts: ${lastError?.message || "unknown error"}`)
+  }
+
+  async remoteModelSize(repo, file) {
+    if (typeof this.fetch !== "function") return 0
+    const url = `https://huggingface.co/${repo}/resolve/main/${encodeURIComponentPath(file)}`
     const response = await this.fetch(url, {
       headers: {
         "User-Agent": "Lotus-Plugin test_nine setup",
+        Range: "bytes=0-0",
       },
+      cache: "no-store",
     })
-    if (!response.ok) throw new Error(`download test_nine model ${file} failed: HTTP ${response.status}`)
-    await fs.mkdir(path.dirname(target), { recursive: true })
-    if (response.body && typeof response.body.getReader === "function") {
-      await pipeline(Readable.fromWeb(response.body), fsSync.createWriteStream(target))
-      return target
-    }
-    await fs.writeFile(target, Buffer.from(await response.arrayBuffer()))
-    return target
+    if (!response.ok) throw new Error(`probe test_nine model ${file} failed: HTTP ${response.status}`)
+    const contentRange = response.headers?.get?.("content-range") || ""
+    const rangeMatch = contentRange.match(/\/(\d+)$/)
+    const size = Number(rangeMatch?.[1] || response.headers?.get?.("content-length") || 0)
+    await response.body?.cancel?.().catch?.(() => {})
+    return Number.isFinite(size) && size > 0 ? size : 0
   }
 
   async getFingerprintStatus(venvPath, config = null) {
@@ -380,6 +433,16 @@ async function exists(file) {
     return true
   } catch {
     return false
+  }
+}
+
+async function replaceFile(source, target) {
+  try {
+    await fs.rename(source, target)
+  } catch (error) {
+    if (!['EEXIST', 'EPERM'].includes(error?.code)) throw error
+    await fs.rm(target, { force: true })
+    await fs.rename(source, target)
   }
 }
 

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict"
 import { EventEmitter } from "node:events"
+import fs from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 import { PassThrough } from "node:stream"
 import test from "node:test"
 import {
@@ -12,6 +15,7 @@ import {
   pythonCandidates,
   selectEnvironmentValue,
 } from "../services/runtime/environment.js"
+import { createPythonVenv, ensurePythonPip } from "../services/python/env.js"
 
 test("normalizes operating systems and CPU architectures", () => {
   assert.equal(normalizePlatform("win32"), "windows")
@@ -74,6 +78,55 @@ test("probes Python candidates and rejects versions below the configured minimum
   assert.equal(result.version, "3.12.4")
   assert.equal(result.arch, "arm64")
   assert.match(result.attempts[0].reason, /3\.9\.18/)
+})
+
+test("bootstraps pip with official get-pip.py when ensurepip is unavailable", async () => {
+  const calls = []
+  const spawn = fakeSpawn((command, args) => {
+    calls.push([command, ...args])
+    if (args.includes("ensurepip")) return { code: 1, stderr: "No module named ensurepip" }
+    if (args.at(-2) === "pip" && args.at(-1) === "--version") {
+      const checks = calls.filter(item => item.includes("--version")).length
+      return checks === 1
+        ? { code: 1, stderr: "No module named pip" }
+        : { code: 0, stdout: "pip 26.0 from test" }
+    }
+    if (args.some(value => String(value).includes("get-pip-"))) return { code: 0 }
+    return { code: 1, stderr: "unexpected command" }
+  })
+  let requested = ""
+  const result = await ensurePythonPip({
+    python: { command: "/venv/bin/python", args: [] },
+    spawnImpl: spawn,
+    fetchImpl: async url => {
+      requested = url
+      return new Response("print('bootstrap pip')", { status: 200 })
+    },
+  })
+  assert.equal(result.status, "bootstrapped")
+  assert.equal(requested, "https://bootstrap.pypa.io/get-pip.py")
+  assert.equal(calls.some(item => item.includes("ensurepip")), true)
+  assert.equal(calls.some(item => item.some(value => String(value).includes("get-pip-"))), true)
+})
+
+test("creates a pipless venv when a distributor removes ensurepip", async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lotus-pipless-venv-"))
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  const calls = []
+  const spawn = fakeSpawn((_command, args) => {
+    calls.push(args)
+    return args.includes("--without-pip")
+      ? { code: 0 }
+      : { code: 1, stderr: "ensurepip is not available; install the python3.13-venv package" }
+  })
+  const result = await createPythonVenv({
+    spawnImpl: spawn,
+    systemPython: { command: "python3", args: [] },
+    venvPath: path.join(dir, "venv"),
+  })
+  assert.equal(result.withoutPip, true)
+  assert.equal(calls.length, 2)
+  assert.equal(calls[1].includes("--without-pip"), true)
 })
 
 function fakeSpawn(handler) {

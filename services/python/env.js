@@ -14,6 +14,7 @@ export class PythonEnvService {
   constructor(options = {}) {
     this.config = options.config
     this.spawn = options.spawn || spawn
+    this.fetch = options.fetch || globalThis.fetch
     this.onProgress = options.onProgress
   }
 
@@ -62,13 +63,25 @@ export class PythonEnvService {
       const systemPython = await this.detectSystemPython(config)
       await emitProgress(onProgress, `Python：创建虚拟环境 ${venvPath}`)
       await emitProgress(onProgress, `Python：使用 ${systemPython.executable} (${systemPython.version}, ${systemPython.platform}/${systemPython.arch})`)
-      await runProcess(this.spawn, systemPython.command, [...systemPython.args, "-m", "venv", venvPath], {
+      await createPythonVenv({
+        spawnImpl: this.spawn,
+        systemPython,
+        venvPath,
         cwd: rootPath,
+        onProgress,
       })
       await emitProgress(onProgress, "Python：虚拟环境创建完成")
     }
 
     const python = await this.getPythonExecutable()
+    if (installRequirements) {
+      await ensurePythonPip({
+        python,
+        spawnImpl: this.spawn,
+        fetchImpl: this.fetch,
+        onProgress,
+      })
+    }
     await emitProgress(onProgress, "MihoyoBBSTools：检查依赖指纹")
     const status = await this.getFingerprintStatus(venvPath)
     if (installRequirements && status.stale) {
@@ -166,6 +179,69 @@ export class PythonEnvService {
   }
 }
 
+export async function ensurePythonPip(options = {}) {
+  const python = options.python || {}
+  const command = python.command || python.executable || python
+  const args = [...(python.args || [])]
+  const spawnImpl = options.spawnImpl || spawn
+  const fetchImpl = options.fetchImpl || globalThis.fetch
+  const cwd = options.cwd || rootPath
+  const pipArgs = [...args, "-m", "pip", "--version"]
+  try {
+    const result = await runProcess(spawnImpl, command, pipArgs, { cwd })
+    return { ok: true, status: "available", version: result.stdout.trim() }
+  } catch {}
+
+  await emitProgress(options.onProgress, "Python：虚拟环境缺少 pip，尝试 ensurepip")
+  try {
+    await runProcess(spawnImpl, command, [...args, "-m", "ensurepip", "--upgrade"], { cwd })
+  } catch (ensureError) {
+    if (typeof fetchImpl !== "function") {
+      const error = new Error(`pip bootstrap unavailable: ${processErrorDetail(ensureError)}`)
+      error.code = "PIP_BOOTSTRAP_UNAVAILABLE"
+      error.cause = ensureError
+      throw error
+    }
+    await emitProgress(options.onProgress, "Python：ensurepip 不可用，按 PyPA 官方方式下载 get-pip.py")
+    const response = await fetchImpl("https://bootstrap.pypa.io/get-pip.py", {
+      headers: { "User-Agent": "Lotus-Plugin pip bootstrap" },
+    })
+    if (!response?.ok) throw new Error(`download get-pip.py failed: HTTP ${response?.status || "unknown"}`)
+    const tempDir = resolveData("tmp", "pip-bootstrap")
+    const script = path.join(tempDir, `get-pip-${process.pid}-${Date.now()}.py`)
+    await fs.mkdir(tempDir, { recursive: true })
+    try {
+      await fs.writeFile(script, Buffer.from(await response.arrayBuffer()))
+      await runProcess(spawnImpl, command, [...args, script, "--disable-pip-version-check"], { cwd })
+    } finally {
+      await fs.rm(script, { force: true }).catch(() => {})
+    }
+  }
+
+  const result = await runProcess(spawnImpl, command, pipArgs, { cwd })
+  await emitProgress(options.onProgress, "Python：pip 已就绪")
+  return { ok: true, status: "bootstrapped", version: result.stdout.trim() }
+}
+
+export async function createPythonVenv(options = {}) {
+  const systemPython = options.systemPython || {}
+  const command = systemPython.command || systemPython.executable || systemPython
+  const args = [...(systemPython.args || [])]
+  const spawnImpl = options.spawnImpl || spawn
+  const cwd = options.cwd || rootPath
+  try {
+    await runProcess(spawnImpl, command, [...args, "-m", "venv", options.venvPath], { cwd })
+    return { ok: true, withoutPip: false }
+  } catch (error) {
+    const detail = processErrorDetail(error)
+    if (!/ensurepip|python\S*-venv|venv package/i.test(detail)) throw error
+    await emitProgress(options.onProgress, "Python：系统 venv 缺少 ensurepip，改用 --without-pip 创建")
+    await fs.rm(options.venvPath, { recursive: true, force: true })
+    await runProcess(spawnImpl, command, [...args, "-m", "venv", "--without-pip", options.venvPath], { cwd })
+    return { ok: true, withoutPip: true }
+  }
+}
+
 async function emitProgress(onProgress, message) {
   if (typeof onProgress !== "function") return
   try {
@@ -220,13 +296,18 @@ export function runProcess(spawnImpl, command, args = [], options = {}) {
         resolve({ code, stdout, stderr })
         return
       }
-      const error = new Error(`${command} exited with code ${code}`)
+      const detail = (stderr || stdout).trim()
+      const error = new Error(`${command} exited with code ${code}${detail ? `: ${detail.slice(-500)}` : ""}`)
       error.code = code
       error.stdout = stdout
       error.stderr = stderr
       reject(error)
     })
   })
+}
+
+function processErrorDetail(error) {
+  return String(error?.stderr || error?.stdout || error?.message || error || "unknown error").trim().slice(-500)
 }
 
 export function withUtf8ProcessEnv(env = process.env) {

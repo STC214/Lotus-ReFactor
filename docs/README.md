@@ -5,6 +5,7 @@
 ## 安装与运行
 
 - [安装与部署](installation.md)
+- [兼容与接管模式](compatibility.md)
 - [初始化](initialization.md)
   - [工具链-BBDown/ffmpeg/aria2](features/tools.md)
 
@@ -51,6 +52,6 @@
 - [指令索引](commands.md)
 - [小功能索引](features/README.md)
 
-安装本插件会替代部分外部插件的登录、验证码 handler、体力、B站解析等入口。若不希望被替代，请不要同时安装对应功能插件。
+插件默认采用共存模式，不写入其他插件的禁用项。只有显式开启“接管冲突功能”后，才会替代部分登录、验证码、体力、图鉴和 B 站解析入口。
 
 使用中遇到问题，欢迎加入荷花的小群 `702211431` 反馈。

@@ -366,7 +366,7 @@ export function normalizeArch(arch = process.arch) {
   return normalizeRuntimeArch(arch)
 }
 
-async function extractArchive(spawnImpl, archive, target, options = {}) {
+export async function extractArchive(spawnImpl, archive, target, options = {}) {
   const lower = archive.toLowerCase()
   if (lower.endsWith(".zip")) {
     if (normalizePlatform(options.platform || process.platform) === "windows") {
@@ -374,11 +374,21 @@ async function extractArchive(spawnImpl, archive, target, options = {}) {
       await runSpawn(spawnImpl, "powershell.exe", ["-NoProfile", "-Command", command], options)
       return
     }
-    await runSpawn(spawnImpl, "unzip", ["-o", archive, "-d", target], options)
+    try {
+      await runSpawn(spawnImpl, "unzip", ["-o", archive, "-d", target], options)
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error
+      await extractArchiveWithPython(spawnImpl, "zip", archive, target, options)
+    }
     return
   }
   if (/\.(tar\.gz|tgz|tar\.xz|txz)$/i.test(lower)) {
-    await runSpawn(spawnImpl, "tar", ["-xf", archive, "-C", target], options)
+    try {
+      await runSpawn(spawnImpl, "tar", ["-xf", archive, "-C", target], options)
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error
+      await extractArchiveWithPython(spawnImpl, "tar", archive, target, options)
+    }
     return
   }
   throw new Error(`unsupported archive: ${path.basename(archive)}`)
@@ -414,6 +424,7 @@ function runSpawn(spawnImpl, command, args = [], options = {}) {
     let stdout = ""
     let stderr = ""
     let timedOut = false
+    let settled = false
     const timer = setTimeout(() => {
       timedOut = true
       child.kill("SIGTERM")
@@ -425,8 +436,15 @@ function runSpawn(spawnImpl, command, args = [], options = {}) {
     child.stderr?.on("data", chunk => {
       stderr += chunk.toString()
     })
-    child.on("error", reject)
+    child.on("error", error => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      reject(error)
+    })
     child.on("close", code => {
+      if (settled) return
+      settled = true
       clearTimeout(timer)
       if (code === 0 && !timedOut) {
         resolve({ ok: true, code, stdout, stderr })
@@ -570,6 +588,34 @@ async function removeSharedFfmpegArtifacts(toolsDir) {
 
 function safeFileName(value = "asset") {
   return String(value || "asset").replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+}
+
+async function extractArchiveWithPython(spawnImpl, type, archive, target, options = {}) {
+  const moduleName = type === "zip" ? "zipfile" : "tarfile"
+  const script = [
+    "import pathlib,sys," + moduleName,
+    "archive,target=sys.argv[1],pathlib.Path(sys.argv[2]).resolve()",
+    "target.mkdir(parents=True,exist_ok=True)",
+    type === "zip"
+      ? "ctx=zipfile.ZipFile(archive); members=ctx.infolist(); names=[m.filename for m in members]"
+      : "ctx=tarfile.open(archive,'r:*'); members=ctx.getmembers(); names=[m.name for m in members]",
+    "bad=[n for n in names if (target/pathlib.PurePosixPath(n)).resolve()!=target and target not in (target/pathlib.PurePosixPath(n)).resolve().parents]",
+    "assert not bad, 'archive path traversal: '+bad[0]",
+    ...(type === "tar" ? ["assert all(m.isfile() or m.isdir() for m in members), 'unsafe tar member type'"] : []),
+    "ctx.extractall(target)",
+    "ctx.close()",
+  ].join("; ")
+  let lastError
+  for (const command of ["python3", "python"]) {
+    try {
+      await runSpawn(spawnImpl, command, ["-c", script, archive, target], options)
+      return
+    } catch (error) {
+      lastError = error
+      if (error?.code !== "ENOENT") throw error
+    }
+  }
+  throw lastError || new Error("Python archive extractor is unavailable")
 }
 
 function safeUrlFileName(url, fallback) {

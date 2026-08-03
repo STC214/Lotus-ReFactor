@@ -103,6 +103,9 @@ const SCOPE_LABELS = {
 }
 
 const GUOBA_SCHEMAS = [
+  group("兼容模式"),
+  sw("compatibility.conflict_takeover", "接管冲突功能", "默认关闭。开启后会禁用已知冲突命令并调整处理优先级；修改后需要重启 Yunzai。"),
+
   group("渲染"),
   textArea("render.background", "随机背景接口", "每行一个接口或本地路径；更新时逐个测速并优先使用最快接口。"),
   input("render.theme_color", "主题色", "用于状态卡和强调色。"),

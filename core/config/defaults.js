@@ -1,4 +1,4 @@
-export const CURRENT_GLOBAL_CONFIG_VERSION = 3
+export const CURRENT_GLOBAL_CONFIG_VERSION = 4
 
 const ATLAS_BASE_SCOPE_ARGS = Object.freeze([
   "--game", "gi,hsr,zzz",
@@ -18,6 +18,9 @@ const ATLAS_CHALLENGE_SCOPE_ARGS = Object.freeze([
 
 export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
   version: CURRENT_GLOBAL_CONFIG_VERSION,
+  compatibility: {
+    conflict_takeover: false,
+  },
   render: {
     background: [
       "https://api.lvxiaodong.com/api/ys?return=json",

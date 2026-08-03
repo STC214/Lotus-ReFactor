@@ -1,4 +1,7 @@
-version: 3
+version: 4
+compatibility:
+  # 默认共存；开启后才禁用冲突入口并调整处理优先级，修改后需重启 Yunzai。
+  conflict_takeover: false
 render:
   background:
     - https://api.lvxiaodong.com/api/ys?return=json

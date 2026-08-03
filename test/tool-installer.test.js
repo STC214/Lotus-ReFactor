@@ -1,9 +1,12 @@
 import assert from "node:assert/strict"
+import { EventEmitter } from "node:events"
+import { PassThrough } from "node:stream"
 import test from "node:test"
 import { createDefaultGlobalConfig } from "../core/config/defaults.js"
 import { validateGlobalConfig } from "../core/config/schema.js"
 import {
   defaultAssetPatterns,
+  extractArchive,
   isDisallowedReleaseAsset,
   pickReleaseAsset,
 } from "../services/tools/installer.js"
@@ -65,4 +68,32 @@ test("default Python and per-environment URL configuration passes schema validat
   assert.deepEqual(validateGlobalConfig(config), [])
   config.python.minimum_version = "three"
   assert.match(validateGlobalConfig(config).join("\n"), /minimum_version/)
+})
+
+test("archive extraction falls back to Python when unzip is absent", async () => {
+  const calls = []
+  const fakeSpawn = (command, args) => {
+    calls.push({ command, args })
+    const child = new EventEmitter()
+    child.stdout = new PassThrough()
+    child.stderr = new PassThrough()
+    child.kill = () => {}
+    queueMicrotask(() => {
+      if (command === "unzip") {
+        const error = new Error("spawn unzip ENOENT")
+        error.code = "ENOENT"
+        child.emit("error", error)
+      } else {
+        child.emit("close", 0)
+      }
+    })
+    return child
+  }
+
+  await extractArchive(fakeSpawn, "/tmp/tool.zip", "/tmp/output", {
+    platform: "linux",
+    timeoutMs: 1000,
+  })
+  assert.deepEqual(calls.map(call => call.command), ["unzip", "python3"])
+  assert.deepEqual(calls[1].args.slice(-2), ["/tmp/tool.zip", "/tmp/output"])
 })
