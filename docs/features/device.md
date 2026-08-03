@@ -24,3 +24,13 @@
 
 - `profile`：可选，Lotus 内部 profile 序号，范围 `1..255`；省略时使用 profile 1。
 - `设备信息`：可选，完整设备 JSON 或包含 `device_id/device_fp` 的文本。省略时按交互提示继续绑定。
+
+## 交互绑定流程
+
+1. 建议私聊机器人发送 `#绑定设备4`，其中 `4` 替换为目标 profile。
+2. 机器人发送 `copy_device_info_1.2.apk`；在 Android 设备安装并打开。
+3. 在 APK 内获取并复制完整设备 JSON。
+4. 回到同一个聊天窗口，把 JSON 作为一条消息直接发送。
+5. 使用 `#设备信息4` 确认设备已绑定。
+
+如果只收到安装提示而没有 APK，请查看 Yunzai 日志中的 `upload_private_file`。分容器部署出现“未知文件类型或路径不存在”时，并非插件内文件缺失，而是文件上传发生在 LLBot 容器；需按[安装与部署](../installation.md#llbot-与-yunzai-分容器时发送设备-apk)为 LLBot 增加同路径只读挂载。

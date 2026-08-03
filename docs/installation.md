@@ -1,6 +1,6 @@
 # 安装与部署
 
-> 首次启动会测试背景接口并下载 10 张图片到 `data/render-backgrounds`；默认每天 04:10 更新。更新失败时保留旧图片并按配置重试，详见 [本地背景池](./features/render-background-pool.md)。
+> 首次启动会测试背景接口并下载 10 张图片到 `data/render-backgrounds`；默认每天 00:10 更新。更新失败时保留旧图片并按配置重试，详见 [本地背景池](./features/render-background-pool.md)。
 
 返回：[项目主页](../README.md) / [文档目录](README.md)
 
@@ -116,3 +116,31 @@ apt-get install -y --no-install-recommends python3 python3-venv ffmpeg aria2 ca-
 ```
 
 插件会优先复用通过版本命令健康检查的 `/usr/bin/ffmpeg`、`ffprobe` 和 `aria2c`；BBDown 可由插件按系统和 CPU 自动选择 Release 下载。
+
+### LLBot 与 Yunzai 分容器时发送设备 APK
+
+`#绑定设备[profile]` 会调用 OneBot 的 `upload_private_file` 发送：
+
+```text
+/root/Yunzai/plugins/Lotus-Plugin/resources/apk/copy_device_info_1.2.apk
+```
+
+当 LLBot 与 Yunzai 位于不同容器时，文件上传动作实际由 LLBot 执行。即使该路径在 Yunzai 容器内存在，LLBot 看不到它仍会返回“未知文件类型或路径不存在”。应把宿主机上的 APK 目录以**相同容器路径**只读挂载给 LLBot：
+
+```yaml
+services:
+  llbot:
+    volumes:
+      - /宿主机/TRSS-Yunzai/yunzai/plugins/Lotus-Plugin/resources/apk:/root/Yunzai/plugins/Lotus-Plugin/resources/apk:ro
+```
+
+应用并验证：
+
+```bash
+docker compose up -d --force-recreate llbot
+docker exec llbot ls -l /root/Yunzai/plugins/Lotus-Plugin/resources/apk/copy_device_info_1.2.apk
+docker exec llbot sha256sum /root/Yunzai/plugins/Lotus-Plugin/resources/apk/copy_device_info_1.2.apk
+docker exec trss-yunzai sha256sum /root/Yunzai/plugins/Lotus-Plugin/resources/apk/copy_device_info_1.2.apk
+```
+
+两边文件均存在且 SHA-256 一致后，重新私聊发送 `#绑定设备4`。只读挂载不会允许 LLBot 修改插件资源。
