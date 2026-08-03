@@ -34,7 +34,7 @@ render:
   background_timeout_ms: 3000
   background_pool_enable: true
   background_pool_size: 10
-  background_refresh_cron: "0 10 4 * * ? *"
+  background_refresh_cron: "0 10 0 * * ? *"
   background_download_retries: 4
   background_retry_enable: true
   background_retry_delays_minutes: [10, 30, 60]
@@ -64,7 +64,7 @@ data/render-backgrounds/
 2. 检查清单和本地文件；图片池为空时，并行请求所有候选接口并下载实际图片测速。
 3. 按速度排序，优先从最快接口取图；重复或失败时重试，必要时由下一可用接口补足。
 4. 10 张图片全部校验完成后发布新批次并写入清单；旧批次在约 60 秒宽限期后清理。
-5. 每日任务按 `background_refresh_cron` 重复测速和轮换。
+5. 每日任务默认在每天 `00:10` 按 `background_refresh_cron` 重复测速和轮换。
 
 若日志出现“背景池仅获得 N/10 张”，插件会继续使用上一批文件，并进入同日退避重试链。
 

@@ -15,7 +15,7 @@ render:
   background_timeout_ms: 3000
   background_pool_enable: true
   background_pool_size: 10
-  background_refresh_cron: "0 10 4 * * ? *"
+  background_refresh_cron: "0 10 0 * * ? *"
   background_download_retries: 4
   background_retry_enable: true
   background_retry_delays_minutes:
