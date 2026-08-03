@@ -27,7 +27,12 @@ export class LotusCaptchaHandler extends BasePlugin {
   }
 
   async init() {
-    await installLotusCaptchaHandlerOverride()
+    await installLotusCaptchaHandlerOverride(null, {
+      registration: {
+        self: this,
+        fn: this.mysReqErrHandler,
+      },
+    })
   }
 
   async mysReqErrHandler(e, args, reject) {

@@ -375,6 +375,9 @@ function validateCompatibilityConfig(compatibility = {}, errors) {
   if (typeof compatibility.conflict_takeover !== "boolean") {
     errors.push("compatibility.conflict_takeover must be boolean")
   }
+  if (typeof compatibility.captcha_priority_takeover !== "boolean") {
+    errors.push("compatibility.captcha_priority_takeover must be boolean")
+  }
 }
 
 function validateRemoteConfig(remote = {}, errors) {

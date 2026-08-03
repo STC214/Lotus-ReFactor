@@ -4,11 +4,12 @@
 
 ## 默认行为
 
-Lotus 从配置版本 4 开始默认使用共存模式：
+Lotus 从配置版本 5 开始默认使用“功能共存、验证码优先路由”模式：
 
 ```yaml
 compatibility:
   conflict_takeover: false
+  captcha_priority_takeover: true
 ```
 
 此时插件只加载自己的应用，不会：
@@ -16,9 +17,11 @@ compatibility:
 - 向 Yunzai `config/config/group.yaml` 写入其他插件禁用项；
 - 在运行时追加冲突插件名称；
 - 重排其他插件的命令优先级；
-- 删除 loveMys 等插件注册的全局验证码 handler。
+- 删除或禁用其他插件注册的全局验证码 handler。
 
-锅巴路径为：`荷花插件 → 兼容模式 → 接管冲突功能`。修改后重启 Yunzai 才会完整生效。
+其中 `captcha_priority_takeover: true` 只会把 Lotus 的 `mys.req.err` handler 以最高优先级重新注册，用于先执行 `test_nine → ttocr → gtmanual` 自动验证链。Lotus 对不支持的错误会调用 `reject()`；自动验证链失败时，GT 等其他验证码 handler 仍保留为后续兜底。该选项不会写入插件禁用列表，也不会接管登录、面板、体力或图鉴命令。
+
+锅巴路径为：`荷花插件 → 兼容模式 → 验证码优先路由`。修改后重启 Yunzai 才会完整生效。
 
 ## 接管模式
 
@@ -27,6 +30,7 @@ compatibility:
 ```yaml
 compatibility:
   conflict_takeover: true
+  captcha_priority_takeover: true
 ```
 
 开启后会恢复以下行为：
@@ -56,10 +60,11 @@ cp config/config/group.yaml config/config/group.yaml.before-lotus-v4
 
 | 场景 | 建议 |
 |---|---|
-| 已安装多个功能插件，希望各自工作 | 保持 `false` |
+| 已安装多个功能插件，希望各自工作，同时优先自动过验证码 | `conflict_takeover: false`、`captcha_priority_takeover: true` |
 | 只使用 Lotus 提供重叠功能 | 设置为 `true` |
 | 正在迁移，尚未核对命令归属 | 先保持 `false` |
 | 开启后发生命令消失或优先级异常 | 切回 `false` 并重启 |
+| 希望完全沿用 GT 等插件的验证码处理 | 将 `captcha_priority_takeover` 设为 `false` |
 
 ## 回退
 
@@ -68,6 +73,7 @@ cp config/config/group.yaml config/config/group.yaml.before-lotus-v4
 ```yaml
 compatibility:
   conflict_takeover: false
+  captcha_priority_takeover: false
 ```
 
 若 group 配置只有部分旧条目，插件会保留它们。此时请对照升级前备份手动核对，而不是直接清空整个 `disable` 数组。

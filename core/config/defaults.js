@@ -1,4 +1,4 @@
-export const CURRENT_GLOBAL_CONFIG_VERSION = 4
+export const CURRENT_GLOBAL_CONFIG_VERSION = 5
 
 const ATLAS_BASE_SCOPE_ARGS = Object.freeze([
   "--game", "gi,hsr,zzz",
@@ -20,6 +20,7 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
   version: CURRENT_GLOBAL_CONFIG_VERSION,
   compatibility: {
     conflict_takeover: false,
+    captcha_priority_takeover: true,
   },
   render: {
     background: [

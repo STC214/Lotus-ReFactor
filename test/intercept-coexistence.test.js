@@ -16,9 +16,12 @@ import { supportGuoba } from "../guoba.support.js"
 test("conflict takeover is disabled by default and exposed in Guoba", () => {
   const config = createDefaultGlobalConfig()
   assert.equal(config.compatibility.conflict_takeover, false)
+  assert.equal(config.compatibility.captcha_priority_takeover, true)
   assert.deepEqual(validateGlobalConfig(config), [])
   const schema = supportGuoba().configInfo.schemas.find(item => item.field === "compatibility.conflict_takeover")
   assert.equal(schema?.component, "Switch")
+  const captchaSchema = supportGuoba().configInfo.schemas.find(item => item.field === "compatibility.captcha_priority_takeover")
+  assert.equal(captchaSchema?.component, "Switch")
 })
 
 test("invalid conflict takeover configuration is rejected", () => {
@@ -27,14 +30,42 @@ test("invalid conflict takeover configuration is rejected", () => {
   assert.match(validateGlobalConfig(config).join("\n"), /conflict_takeover must be boolean/)
 })
 
-test("coexistence mode skips legacy captcha handler takeover", async () => {
-  const result = await installLotusCaptchaHandlerOverride(null, {
+test("coexistence mode prioritizes Lotus captcha and preserves fallback handlers", async () => {
+  const added = []
+  const removed = []
+  const handler = {
+    add: cfg => added.push(cfg),
+    del: (ns, key) => removed.push({ ns, key }),
+  }
+  const self = {}
+  const fn = async () => {}
+  const result = await installLotusCaptchaHandlerOverride(handler, {
     config: createDefaultGlobalConfig(),
+    registration: { self, fn },
   })
   assert.deepEqual(result, {
     ok: true,
+    conflictTakeover: false,
+    captchaPriorityTakeover: true,
+    fallbackHandlersPreserved: true,
+  })
+  assert.equal(removed.length, 0)
+  assert.equal(added.length, 1)
+  assert.equal(added[0].ns, "Lotus-Plugin")
+  assert.equal(added[0].key, "mys.req.err")
+  assert.equal(added[0].priority, Number.NEGATIVE_INFINITY)
+  assert.equal(added[0].self, self)
+  assert.equal(added[0].fn, fn)
+})
+
+test("captcha priority routing can be disabled independently", async () => {
+  const config = createDefaultGlobalConfig()
+  config.compatibility.captcha_priority_takeover = false
+  const result = await installLotusCaptchaHandlerOverride(null, { config })
+  assert.deepEqual(result, {
+    ok: true,
     skipped: true,
-    reason: "conflict_takeover_disabled",
+    reason: "captcha_priority_takeover_disabled",
   })
 })
 

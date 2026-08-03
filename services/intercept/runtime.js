@@ -65,15 +65,18 @@ export async function installLotusRuntimeInterception(options = {}) {
 
 export async function installLotusCaptchaHandlerOverride(handlerModule = null, options = {}) {
   const config = options.config || await loadGlobalConfig()
-  if (config.compatibility?.conflict_takeover !== true) {
-    return { ok: true, skipped: true, reason: "conflict_takeover_disabled" }
+  const conflictTakeover = config.compatibility?.conflict_takeover === true
+  const captchaPriorityTakeover = conflictTakeover
+    || config.compatibility?.captcha_priority_takeover === true
+  if (!captchaPriorityTakeover) {
+    return { ok: true, skipped: true, reason: "captcha_priority_takeover_disabled" }
   }
   const Handler = handlerModule || await importYunzaiDefault("../../../../lib/plugins/handler.js")
   if (!Handler?.add || !Handler?.del) {
     return { ok: false, reason: "handler module unavailable" }
   }
 
-  if (!handlerPatchInstalled) {
+  if (conflictTakeover && !handlerPatchInstalled) {
     const originalAdd = Handler.add.bind(Handler)
     Handler.add = cfg => {
       const key = cfg?.key || cfg?.event
@@ -94,11 +97,29 @@ export async function installLotusCaptchaHandlerOverride(handlerModule = null, o
     handlerPatchInstalled = true
   }
 
-  for (const ns of LEGACY_CAPTCHA_HANDLER_NAMESPACES) {
-    Handler.del(ns, "mys.req.err")
+  if (conflictTakeover) {
+    for (const ns of LEGACY_CAPTCHA_HANDLER_NAMESPACES) {
+      Handler.del(ns, "mys.req.err")
+    }
   }
 
-  return { ok: true }
+  const registration = options.registration
+  if (registration?.self && typeof registration.fn === "function") {
+    Handler.add({
+      ns: LOTUS_CAPTCHA_HANDLER_NAMESPACE,
+      key: "mys.req.err",
+      self: registration.self,
+      fn: registration.fn,
+      priority: LOTUS_INTERCEPT_PRIORITY,
+    })
+  }
+
+  return {
+    ok: true,
+    conflictTakeover,
+    captchaPriorityTakeover: true,
+    fallbackHandlersPreserved: !conflictTakeover,
+  }
 }
 
 export async function cleanupLegacyYunzaiConflictDisableConfig(options = {}) {

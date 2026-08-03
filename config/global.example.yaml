@@ -1,7 +1,9 @@
-version: 4
+version: 5
 compatibility:
   # 默认共存；开启后才禁用冲突入口并调整处理优先级，修改后需重启 Yunzai。
   conflict_takeover: false
+  # 仅优先处理米游社验证码；自动识别失败后继续交给其他验证码插件兜底。
+  captcha_priority_takeover: true
 render:
   background:
     - https://api.lvxiaodong.com/api/ys?return=json
