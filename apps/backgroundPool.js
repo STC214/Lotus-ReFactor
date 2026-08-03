@@ -14,7 +14,7 @@ export class LotusBackgroundPool extends BasePlugin {
     })
     this.task = [{
       name: "荷花插件每日背景测速与本地化",
-      cron: "0 10 4 * * ? *",
+      cron: "0 10 0 * * ? *",
       fnc: this.refresh.bind(this),
       log: false,
     }]
@@ -26,7 +26,7 @@ export class LotusBackgroundPool extends BasePlugin {
       const config = await loadGlobalConfig()
       this.task = [{
         name: "荷花插件每日背景测速与本地化",
-        cron: config.render?.background_refresh_cron || "0 10 4 * * ? *",
+        cron: config.render?.background_refresh_cron || "0 10 0 * * ? *",
         fnc: this.refresh.bind(this),
         log: false,
       }]
