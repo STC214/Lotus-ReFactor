@@ -164,6 +164,21 @@ export function nextDateString(now = new Date()) {
   return dateString(next)
 }
 
+/**
+ * Select the plan date from the configured automatic generation time.
+ * 00:00:00-12:59:59 generates today's plan; 13:00:00-23:59:59 generates tomorrow's.
+ * Using the configured cron time (rather than the catch-up execution time) keeps
+ * delayed startup recovery consistent with the user's scheduling intent.
+ */
+export function planDateForGeneration(now = new Date(), planGenerateCron = "", cutoffTime = "13:00") {
+  const configuredMinute = cronToMinuteOfDay(planGenerateCron)
+  const generationMinute = Number.isFinite(configuredMinute)
+    ? configuredMinute
+    : now.getHours() * 60 + now.getMinutes()
+  const cutoffMinute = parseTime(cutoffTime)
+  return generationMinute < cutoffMinute ? dateString(now) : nextDateString(now)
+}
+
 export function cronToMinuteOfDay(cron = "") {
   const parts = String(cron || "").trim().split(/\s+/).filter(Boolean)
   if (parts.length < 5) return Number.NaN

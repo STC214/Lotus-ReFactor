@@ -42,8 +42,8 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
     super_resolution_preset: "off",
   },
   scheduler: {
-    enable: true,
     plan_generate_cron: "0 0 0 * * ? *",
+    plan_date_cutoff_time: "13:00",
     run_due_cron: "0 * * * * ? *",
     catch_up_cron: "0 */10 * * * ? *",
     mode: "fixed",

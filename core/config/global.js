@@ -214,6 +214,7 @@ function normalizeCronFields(config = {}) {
     config.render.background_refresh_cron = normalizeQuartzCron(config.render.background_refresh_cron)
   }
   if (config.scheduler) {
+    delete config.scheduler.enable
     config.scheduler.plan_generate_cron = normalizeQuartzCron(config.scheduler.plan_generate_cron)
     config.scheduler.run_due_cron = normalizeQuartzCron(config.scheduler.run_due_cron)
     config.scheduler.catch_up_cron = normalizeQuartzCron(config.scheduler.catch_up_cron)

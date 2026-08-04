@@ -127,8 +127,8 @@ const GUOBA_SCHEMAS = [
   ], "档位越高，CPU 与内存负担越大。"),
 
   group("签到调度"),
-  sw("scheduler.enable", "启用自动调度", "关闭后只允许手动签到。"),
-  cron("scheduler.plan_generate_cron", "生成计划时间", "每天按此 cron 生成次日签到表。"),
+  cron("scheduler.plan_generate_cron", "生成计划时间", "每天按此 cron 触发签到计划生成。"),
+  input("scheduler.plan_date_cutoff_time", "当日/次日计划分界", "格式 HH:mm。生成时间早于此时刻则生成当日计划，等于或晚于此时刻则生成次日计划，默认 13:00。"),
   cron("scheduler.run_due_cron", "到期扫描频率", "扫描到期任务并执行签到。"),
   cron("scheduler.catch_up_cron", "计划补偿检查", "错过计划生成任务时检查并补建。"),
   select("scheduler.mode", "全局签到模式", [

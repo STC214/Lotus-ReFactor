@@ -3,7 +3,7 @@ const BasePlugin = globalThis.plugin
 import { loadGlobalConfig, saveGlobalConfig } from "../core/config/global.js"
 import { listProfileIds, loadProfile } from "../core/config/profile.js"
 import { PermissionService } from "../core/permissions/service.js"
-import { SchedulerService, cronToMinuteOfDay, nextDateString } from "../core/scheduler/service.js"
+import { SchedulerService, cronToMinuteOfDay, dateString, planDateForGeneration } from "../core/scheduler/service.js"
 import { renderStatusCard } from "../core/render/service.js"
 import { replyImage, replyText } from "../core/transport/reply.js"
 import { ScheduledSigninService } from "../services/checkin/scheduled.js"
@@ -36,9 +36,9 @@ export class LotusScheduler extends BasePlugin {
         log: false,
       },
       {
-        name: "荷花插件生成明日签到计划",
+        name: "荷花插件生成签到计划",
         cron: "0 0 0 * * ? *",
-        fnc: this.generateTomorrowPlanTask.bind(this),
+        fnc: this.generateScheduledPlanTask.bind(this),
         log: false,
       },
       {
@@ -61,17 +61,17 @@ export class LotusScheduler extends BasePlugin {
           log: false,
         },
         {
-          name: "荷花插件生成明日签到计划",
+          name: "荷花插件生成签到计划",
           cron: globalConfig.scheduler?.plan_generate_cron || "0 0 0 * * ? *",
-          fnc: this.generateTomorrowPlanTask.bind(this),
+          fnc: this.generateScheduledPlanTask.bind(this),
           log: false,
         },
-        {
+        ...(globalConfig.scheduler?.catch_up_cron ? [{
           name: "荷花插件签到计划补偿检查",
-          cron: globalConfig.scheduler?.catch_up_cron || "0 */10 * * * ? *",
+          cron: globalConfig.scheduler.catch_up_cron,
           fnc: this.catchUpTomorrowPlanTask.bind(this),
           log: false,
-        },
+        }] : []),
       ]
       this.scheduleStartupCatchUp(globalConfig)
     } catch (error) {
@@ -87,10 +87,11 @@ export class LotusScheduler extends BasePlugin {
       await replyText(this, "[荷花插件]只有 bot 主人可以生成全局签到计划。")
       return true
     }
-    const date = nextDateString()
+    const now = new Date()
+    const date = planDateForGeneration(now, globalConfig.scheduler?.plan_generate_cron, globalConfig.scheduler?.plan_date_cutoff_time)
     const generated = await new ScheduledSigninService({
       scheduler: new SchedulerService({ config: globalConfig.scheduler }),
-    }).ensureTomorrowPlanAndNotify({
+    }).ensurePlanAndNotify({
       config: globalConfig,
       date,
       force: true,
@@ -104,24 +105,25 @@ export class LotusScheduler extends BasePlugin {
       userId: this.e.user_id,
       notifications,
     })
-    await replyImage(this, image, "[荷花插件]明日签到计划已生成。")
+    const dayLabel = date === dateString(now) ? "今日" : "明日"
+    await replyImage(this, image, `[荷花插件]${dayLabel}签到计划已生成。`)
     return true
   }
 
   async myPlan() {
-    const date = nextDateString()
     const globalConfig = await loadGlobalConfig()
+    const date = planDateForGeneration(new Date(), globalConfig.scheduler?.plan_generate_cron, globalConfig.scheduler?.plan_date_cutoff_time)
     const scheduler = new SchedulerService({ config: globalConfig.scheduler })
     const userId = String(this.e.user_id)
     await addMissingProfilesToPlan(userId, date, scheduler, globalConfig)
     const plan = await scheduler.getPlan(date)
     if (!plan) {
-      await replyText(this, "[荷花插件]明日签到计划尚未生成，请等待计划生成任务，或由 bot 主人执行 #生成签到计划。")
+      await replyText(this, `[荷花插件]${date === dateString() ? "今日" : "明日"}签到计划尚未生成，请等待计划生成任务，或由 bot 主人执行 #生成签到计划。`)
       return true
     }
     const entries = plan.entries.filter(item => item.qq === userId)
     if (!entries.length) {
-      await replyText(this, "[荷花插件]明日计划里没有找到你的 profile。")
+      await replyText(this, `[荷花插件]${date === dateString() ? "今日" : "明日"}计划里没有找到你的 profile。`)
       return true
     }
     const image = await renderSchedulePlan({ ...plan, entries }, {
@@ -129,29 +131,28 @@ export class LotusScheduler extends BasePlugin {
       subtitle: `${date} · QQ ${userId}`,
       userId,
     })
-    await replyImage(this, image, "[荷花插件]这是你明日的签到时间。")
+    await replyImage(this, image, `[荷花插件]这是你${date === dateString() ? "今日" : "明日"}的签到时间。`)
     return true
   }
 
-  async generateTomorrowPlanTask() {
+  async generateScheduledPlanTask() {
     const globalConfig = await loadGlobalConfig()
-    if (globalConfig.scheduler?.enable === false) {
-      return {
-        ok: true,
-        disabled: true,
-      }
-    }
+    const now = new Date()
+    const date = planDateForGeneration(now, globalConfig.scheduler?.plan_generate_cron, globalConfig.scheduler?.plan_date_cutoff_time)
     const generated = await new ScheduledSigninService({
       scheduler: new SchedulerService({ config: globalConfig.scheduler }),
-    }).ensureTomorrowPlanAndNotify({
+    }).ensurePlanAndNotify({
       config: globalConfig,
+      date,
+      now,
       bot: globalThis.Bot,
     })
-    logger?.mark?.(`[Lotus-Plugin] tomorrow schedule ready: ${generated.plan.date}, notify ${generated.notifications.length}`)
+    logger?.mark?.(`[Lotus-Plugin] schedule ready: ${generated.plan.date}, notify ${generated.notifications.length}`)
     return generated
   }
 
   scheduleStartupCatchUp(globalConfig) {
+    if (!globalConfig.scheduler?.catch_up_cron) return globalConfig
     setTimeout(() => {
       this.catchUpTomorrowPlanTask({ trigger: "启动补偿" }).catch(error => {
         logger?.error?.(`[Lotus-Plugin] schedule catch-up failed: ${error.stack || error.message}`)
@@ -162,12 +163,6 @@ export class LotusScheduler extends BasePlugin {
 
   async catchUpTomorrowPlanTask(options = {}) {
     const globalConfig = await loadGlobalConfig()
-    if (globalConfig.scheduler?.enable === false) {
-      return {
-        ok: true,
-        disabled: true,
-      }
-    }
     const now = options.now || new Date()
     const generateMinute = cronToMinuteOfDay(globalConfig.scheduler?.plan_generate_cron || "0 0 0 * * ? *")
     if (!Number.isFinite(generateMinute)) {
@@ -186,12 +181,12 @@ export class LotusScheduler extends BasePlugin {
       }
     }
     const scheduler = new SchedulerService({ config: globalConfig.scheduler })
-    const date = nextDateString(now)
+    const date = planDateForGeneration(now, globalConfig.scheduler?.plan_generate_cron, globalConfig.scheduler?.plan_date_cutoff_time)
     const existing = await scheduler.getPlan(date)
     if (existing) {
       const pendingNotices = existing.entries.filter(entry => !entry.notified).length
       if (pendingNotices && globalConfig.scheduler?.random?.notify_before !== false) {
-        return new ScheduledSigninService({ scheduler }).ensureTomorrowPlanAndNotify({
+        return new ScheduledSigninService({ scheduler }).ensurePlanAndNotify({
           config: globalConfig,
           date,
           bot: globalThis.Bot,
@@ -204,8 +199,8 @@ export class LotusScheduler extends BasePlugin {
         date,
       }
     }
-    logger?.mark?.(`[Lotus-Plugin] schedule catch-up creating tomorrow plan: ${date}`)
-    return this.generateTomorrowPlanTask({ trigger: options.trigger || "补偿检查" })
+    logger?.mark?.(`[Lotus-Plugin] schedule catch-up creating plan: ${date}`)
+    return this.generateScheduledPlanTask({ trigger: options.trigger || "补偿检查" })
   }
 
   async runDueCommand() {
@@ -271,15 +266,6 @@ export class LotusScheduler extends BasePlugin {
 
   async runDueCheckins(options = {}) {
     const globalConfig = await loadGlobalConfig()
-    if (globalConfig.scheduler?.enable === false) {
-      return {
-        ok: true,
-        date: "",
-        count: 0,
-        results: [],
-        disabled: true,
-      }
-    }
     const result = await new ScheduledSigninService({
       scheduler: new SchedulerService({ config: globalConfig.scheduler }),
     }).runDue({ ...options, config: globalConfig })

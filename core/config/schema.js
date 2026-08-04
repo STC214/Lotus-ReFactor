@@ -187,8 +187,8 @@ function validateGlobalScheduler(scheduler = {}, errors) {
     errors.push("scheduler must be an object")
     return
   }
-  if (typeof scheduler.enable !== "boolean") errors.push("scheduler.enable must be boolean")
   if (!isString(scheduler.plan_generate_cron)) errors.push("scheduler.plan_generate_cron must be a string")
+  if (!isTime(scheduler.plan_date_cutoff_time)) errors.push("scheduler.plan_date_cutoff_time must be HH:mm")
   if (!isString(scheduler.run_due_cron)) errors.push("scheduler.run_due_cron must be a string")
   if (!isString(scheduler.catch_up_cron)) errors.push("scheduler.catch_up_cron must be a string")
   if (!GLOBAL_SCHEDULE_MODES.has(scheduler.mode)) {

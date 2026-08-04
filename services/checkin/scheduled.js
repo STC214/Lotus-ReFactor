@@ -2,7 +2,7 @@ import { loadGlobalConfig } from "../../core/config/global.js"
 import { createCaptchaEventReporter } from "../../core/captcha/notify.js"
 import { loadProfile } from "../../core/config/profile.js"
 import { renderTemplate } from "../../core/render/service.js"
-import { SchedulerService, dateString, nextDateString, normalizeSchedulerConfig } from "../../core/scheduler/service.js"
+import { SchedulerService, dateString, nextDateString, normalizeSchedulerConfig, planDateForGeneration } from "../../core/scheduler/service.js"
 import { formatLocalIso } from "../../core/time.js"
 import { notifyProfile } from "../../core/transport/notify.js"
 import { ProfileSigninService, renderSigninFailure } from "./profileSignin.js"
@@ -31,10 +31,18 @@ export class ScheduledSigninService {
     const config = options.config || await loadGlobalConfig()
     const schedulerConfig = normalizeSchedulerConfig(config.scheduler || this.scheduler.config || {})
     let plan = await this.scheduler.getPlan(planDate)
-    let createdPlan = false
     if (!plan) {
-      plan = await this.scheduler.getOrCreatePlan(planDate, { profiles: options.profiles })
-      createdPlan = true
+      return {
+        ok: true,
+        date: planDate,
+        count: 0,
+        results: [],
+        createdPlan: false,
+        recovered: 0,
+        notificationRetries: [],
+        skipped: true,
+        reason: "plan_not_found",
+      }
     }
     const recoveredEntries = recoverStaleRunningEntries(plan, now, schedulerConfig.running_timeout_minutes)
     if (recoveredEntries.length) {
@@ -83,7 +91,7 @@ export class ScheduledSigninService {
       date: planDate,
       count: results.length,
       results,
-      createdPlan,
+      createdPlan: false,
       recovered: recoveredEntries.length,
       notificationRetries,
     }
@@ -156,9 +164,14 @@ export class ScheduledSigninService {
     return results
   }
 
-  async ensureTomorrowPlanAndNotify(options = {}) {
+  async ensurePlanAndNotify(options = {}) {
     const config = options.config || await loadGlobalConfig()
-    const date = options.date || nextDateString(this.now())
+    const now = options.now || this.now()
+    const date = options.date || planDateForGeneration(
+      now,
+      config.scheduler?.plan_generate_cron,
+      config.scheduler?.plan_date_cutoff_time,
+    )
     return runScheduleTask(`tomorrow-plan:${date}`, () => runPlanTask(date, async () => {
       const plan = await this.scheduler.getOrCreatePlan(date, {
         force: options.force,
@@ -167,6 +180,10 @@ export class ScheduledSigninService {
       const notifications = shouldNotify ? await this.notifyPlan(plan, options) : []
       return { plan, notifications }
     }))
+  }
+
+  async ensureTomorrowPlanAndNotify(options = {}) {
+    return this.ensurePlanAndNotify(options)
   }
 
   async addLateProfileAndNotify(profile, options = {}) {

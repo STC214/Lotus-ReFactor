@@ -5,12 +5,13 @@ import path from "node:path"
 import test from "node:test"
 import YAML from "yaml"
 
-import { validateProfile } from "../core/config/schema.js"
-import { SchedulerService } from "../core/scheduler/service.js"
+import { validateGlobalConfig, validateProfile } from "../core/config/schema.js"
+import { createDefaultGlobalConfig } from "../core/config/defaults.js"
+import { GUOBA_SCHEMAS } from "../guoba.support.js"
+import { SchedulerService, planDateForGeneration } from "../core/scheduler/service.js"
 import { ScheduledSigninService } from "../services/checkin/scheduled.js"
 
 const schedulerConfig = {
-  enable: true,
   mode: "fixed",
   fixed_time: "04:30",
   entry_timeout_minutes: 1,
@@ -37,6 +38,25 @@ async function fixture(t) {
   return new SchedulerService({ config: schedulerConfig, planDir })
 }
 
+test("plan date follows the configured generation-time half-day boundary", () => {
+  const now = new Date(2026, 7, 4, 18, 30, 0)
+  assert.equal(planDateForGeneration(now, "0 0 0 * * * *"), "2026-08-04")
+  assert.equal(planDateForGeneration(now, "59 59 12 * * * *"), "2026-08-04")
+  assert.equal(planDateForGeneration(now, "0 0 13 * * * *"), "2026-08-05")
+  assert.equal(planDateForGeneration(now, "59 59 23 * * * *"), "2026-08-05")
+  assert.equal(planDateForGeneration(now, "0 29 6 * * * *", "06:30"), "2026-08-04")
+  assert.equal(planDateForGeneration(now, "0 30 6 * * * *", "06:30"), "2026-08-05")
+})
+
+test("plan date cutoff is configurable and exposed in Guoba", () => {
+  const config = createDefaultGlobalConfig()
+  assert.equal(config.scheduler.plan_date_cutoff_time, "13:00")
+  assert.deepEqual(validateGlobalConfig(config), [])
+  const schema = GUOBA_SCHEMAS.find(item => item.field === "scheduler.plan_date_cutoff_time")
+  assert.equal(schema?.component, "Input")
+  assert.equal(GUOBA_SCHEMAS.some(item => item.field === "scheduler.enable"), false)
+})
+
 test("fixed plan respects global time and profile override", async t => {
   const scheduler = await fixture(t)
   const plan = scheduler.generatePlan({
@@ -47,8 +67,13 @@ test("fixed plan respects global time and profile override", async t => {
   assert.deepEqual(plan.entries.map(item => item.time), ["04:30", "05:12"])
 })
 
-test("missing today plan is created and a due entry executes exactly once", async t => {
+test("an existing due entry executes exactly once", async t => {
   const scheduler = await fixture(t)
+  await scheduler.savePlan(scheduler.generatePlan({
+    date: "2026-08-03",
+    config: schedulerConfig,
+    profiles: [profile()],
+  }))
   let calls = 0
   const service = new ScheduledSigninService({
     scheduler,
@@ -63,7 +88,7 @@ test("missing today plan is created and a due entry executes exactly once", asyn
   const now = new Date(2026, 7, 3, 4, 30, 0)
   const first = await service.runDue({ now, config: { scheduler: schedulerConfig }, profiles: [profile()] })
   const second = await service.runDue({ now, config: { scheduler: schedulerConfig }, profiles: [profile()] })
-  assert.equal(first.createdPlan, true)
+  assert.equal(first.createdPlan, false)
   assert.equal(first.count, 1)
   assert.equal(first.results[0].outcome.source, "scheduled")
   assert.equal(second.count, 0)
@@ -73,8 +98,27 @@ test("missing today plan is created and a due entry executes exactly once", asyn
   assert.equal(stored.entries[0].resultNotified, true)
 })
 
+test("due scanning never creates a missing plan", async t => {
+  const scheduler = await fixture(t)
+  let calls = 0
+  const service = new ScheduledSigninService({
+    scheduler,
+    signin: { run: async () => { calls += 1; return { ok: true } } },
+  })
+  const result = await service.runDue({
+    now: new Date(2026, 7, 3, 4, 30),
+    config: { scheduler: schedulerConfig },
+    profiles: [profile()],
+  })
+  assert.equal(result.count, 0)
+  assert.equal(result.reason, "plan_not_found")
+  assert.equal(calls, 0)
+  assert.equal(await scheduler.getPlan("2026-08-03"), null)
+})
+
 test("retryable failures use 15/60 minute backoff and persist each transition", async t => {
   const scheduler = await fixture(t)
+  await scheduler.savePlan(scheduler.generatePlan({ date: "2026-08-03", config: schedulerConfig, profiles: [profile()] }))
   let calls = 0
   const service = new ScheduledSigninService({
     scheduler,
@@ -96,6 +140,7 @@ test("retryable failures use 15/60 minute backoff and persist each transition", 
 test("retry does not spill into a plan date that will no longer be scanned", async t => {
   const config = { ...schedulerConfig, fixed_time: "23:55" }
   const scheduler = new SchedulerService({ config, planDir: (await fixture(t)).planDir })
+  await scheduler.savePlan(scheduler.generatePlan({ date: "2026-08-03", config, profiles: [profile()] }))
   const service = new ScheduledSigninService({
     scheduler,
     loadProfile: async () => profile(),
@@ -129,6 +174,7 @@ test("stale running lease is recovered after restart", async t => {
 
 test("result notification failure never changes sign-in success and is retried without signing again", async t => {
   const scheduler = await fixture(t)
+  await scheduler.savePlan(scheduler.generatePlan({ date: "2026-08-03", config: schedulerConfig, profiles: [profile()] }))
   let signinCalls = 0
   let notifyCalls = 0
   const service = new ScheduledSigninService({
