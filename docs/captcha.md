@@ -1,6 +1,6 @@
 # 验证码链
 
-返回：[项目主页](../README.md) / [文档目录](README.md)
+返回：[项目主页](../README.md) / [文档目录](README.md) / [致谢与引用](references.md)
 
 默认顺序：
 

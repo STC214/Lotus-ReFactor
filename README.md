@@ -2,7 +2,11 @@
 
 # Lotus-Plugin ReFactor
 
-`Lotus-Plugin` 的重构版，目标是把旧插件拆成可维护、可测试、profile-aware 的实现。主页面只保留概览，完整使用说明请看 [文档目录](docs/README.md)。
+`Lotus-Plugin` 的重构维护分支，目标是把旧插件拆成可维护、可测试、profile-aware 的实现。主页面只保留概览，完整使用说明请看 [文档目录](docs/README.md)。
+
+- 当前维护仓库：[STC214/Lotus-ReFactor](https://github.com/STC214/Lotus-ReFactor)
+- 上游来源仓库：[MOPELotus/Lotus-ReFactor](https://github.com/MOPELotus/Lotus-ReFactor)
+- 完整[致谢与引用清单](docs/references.md)
 
 本项目为源码可见的专有软件（Source-Available Proprietary Software）。允许个人非商业原样使用；禁止二次修改发布、搬运、商用、售卖及去除署名。完整条款见 [LICENSE](LICENSE)。
 
@@ -12,7 +16,9 @@
 
 ## 鸣谢
 
-感谢以下项目提供的思路及技术支持：
+感谢以下上游项目、依赖项目与社区项目提供的源码基础、思路及技术支持：
+
+- **上游来源**：[MOPELotus/Lotus-ReFactor](https://github.com/MOPELotus/Lotus-ReFactor)
 
 - [MOPELotus/xiaoyao-cvs-plugin](https://github.com/MOPELotus/xiaoyao-cvs-plugin)
 - [ctrlcvs/xiaoyao-cvs-plugin](https://github.com/ctrlcvs/xiaoyao-cvs-plugin)

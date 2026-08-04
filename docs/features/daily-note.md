@@ -1,6 +1,6 @@
 # 体力查询-原神、星铁、绝区零
 
-返回：[上一级](../daily-note.md) / [文档目录](../README.md) / [小功能索引](README.md)
+返回：[上一级](../daily-note.md) / [文档目录](../README.md) / [小功能索引](README.md) / [致谢与引用](../references.md)
 
 ## 功能特性
 

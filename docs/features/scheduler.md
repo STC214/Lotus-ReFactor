@@ -1,14 +1,14 @@
 # 签到调度：固定时间与随机计划
 
-返回：[上一级](../checkin.md) / [文档目录](../README.md) / [小功能索引](README.md)
+返回：[上一级](../checkin.md) / [文档目录](../README.md) / [小功能索引](README.md) / [致谢与引用](../references.md)
 
 ## 完整执行链路
 
 1. `#注册自动签到[profile]` 将对应 profile 标记为启用；未启用的 profile 不进入计划。
-2. 每天由 `plan_generate_cron` 生成次日计划；启动后和 `catch_up_cron` 定时执行补偿检查，缺失时补建，通知失败时重试未通知条目。
+2. 每天由 `plan_generate_cron` 触发计划生成；触发时间早于 `plan_date_cutoff_time` 时生成当天计划，等于或晚于分界时生成次日计划。`catch_up_cron` 留空表示关闭补偿，配置后才会检查并补建。
 3. 固定模式使用全局 `fixed_time`；profile 可设置自己的固定时间。随机模式会在配置窗口内均匀分配。
-4. `run_due_cron` 扫描当天计划。当天计划不存在时会立即创建，避免首次安装、午夜任务失败或重启导致当天漏签。
-5. 到期条目先持久化 `runningAt`，再刷新登录态、执行 MihoyoBBSTools、处理验证码、渲染并发送结果。
+4. `run_due_cron` 只扫描并执行当天已有计划；计划不存在时返回 `plan_not_found`，不会擅自创建。计划只能由自动生成任务或 `#生成签到计划` 创建。
+5. 自动执行与手动签到入口始终并存、互不禁用。到期条目先持久化 `runningAt`，再刷新登录态、执行 MihoyoBBSTools、处理验证码、渲染并发送结果。
 6. 执行结果和重试时间以原子替换方式写回 `data/schedules/YYYY-MM-DD.json`；审计写入 `data/audit/checkin.jsonl`。
 
 ## 失败恢复
@@ -41,6 +41,8 @@ scheduler:
     notify_before: true
 ```
 
+`plan_date_cutoff_time` 是锅巴中的“当日/次日计划分界”，默认 `13:00`。生成时间早于分界时生成当天计划，等于或晚于分界时生成次日计划。不存在“启用自动调度”总开关。
+
 `running_timeout_minutes` 必须大于 `entry_timeout_minutes`。时间必须是合法的 `HH:mm`，例如 `04:30`；`24:00`、`99:99` 会被配置校验拒绝。以上字段也可在锅巴设置页修改。
 
 ## 指令
@@ -67,7 +69,7 @@ scheduler:
 ## 运维检查
 
 1. 检查配置：锅巴设置页或 `config/global.yaml`。
-2. 检查次日计划：`#生成签到计划`、`#我的签到时间`。
+2. 检查目标日期计划：`#生成签到计划`、`#我的签到时间`；页面会明确显示实际日期。
 3. 检查到期执行：主人执行 `#执行到期签到`。
 4. 检查审计：`#自动签到日志` 或 `data/audit/checkin.jsonl`，定时执行的 `source` 应为 `scheduled`。
 5. 检查计划状态：`done` 表示结束，`nextRetryAt` 表示签到重试，`notificationRetryAt` 表示仅补发结果通知。

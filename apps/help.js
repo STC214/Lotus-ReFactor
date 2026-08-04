@@ -1,29 +1,35 @@
 const BasePlugin = globalThis.plugin
 
-import { replyText } from "../core/transport/reply.js"
+import { renderTemplate } from "../core/render/service.js"
+import { replyImage } from "../core/transport/reply.js"
+import { HELP_DOCUMENT_URL, loadHelpCommandSections } from "../services/help/commands.js"
 
 export class LotusHelp extends BasePlugin {
   constructor() {
     super({
       name: "[Lotus-Plugin] Help",
-      dsc: "Lotus documentation help",
+      dsc: "Lotus command help",
       event: "message",
       priority: 20,
       rule: [
-        {
-          reg: "^#?(Lotus|lotus|荷花)(帮助|help)$",
-          fnc: "help",
-        },
-        {
-          reg: "^#自动签到帮助$",
-          fnc: "help",
-        },
+        { reg: "^#?(Lotus|lotus|荷花)(帮助|help)$", fnc: "help" },
+        { reg: "^#自动签到帮助$", fnc: "help" },
       ],
     })
   }
 
   async help() {
-    await replyText(this, "[荷花插件]完整文档请查看 README.md 和 docs/README.md，里面按部署、初始化、登录、签到、图鉴、体力、B站、远程 spawn 等模块拆开说明。")
+    const sections = await loadHelpCommandSections()
+    const image = await renderTemplate("help", {
+      title: "荷花插件指令帮助",
+      subtitle: `共 ${sections.reduce((sum, section) => sum + section.commands.length, 0)} 条指令/用法`,
+      badge: "HELP",
+      message: "profile 后缀支持 1..255；省略时使用 profile 1。下列内容直接读取插件仓库内的指令文档。",
+      userId: this.e?.user_id || "user",
+      sections: sections.map(section => ({ title: section.title, body: section.commands.join("\n") })),
+      documentUrl: HELP_DOCUMENT_URL,
+    }, { saveId: `lotus-help-${this.e?.user_id || "user"}` })
+    await replyImage(this, image, "[荷花插件]指令帮助已生成。")
     return true
   }
 }

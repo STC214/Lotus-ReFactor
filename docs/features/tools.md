@@ -1,6 +1,6 @@
 # 工具链-BBDown/ffmpeg/aria2
 
-返回：[上一级](../initialization.md) / [文档目录](../README.md) / [小功能索引](README.md)
+返回：[上一级](../initialization.md) / [文档目录](../README.md) / [小功能索引](README.md) / [致谢与引用](../references.md)
 
 ## 功能特性
 

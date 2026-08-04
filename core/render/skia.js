@@ -51,8 +51,8 @@ class SkiaRenderer {
     this.templateName = templateName
     this.data = data
     this.options = options
-    this.width = isAtlasTemplate(templateName) ? 1280 : 760
-    this.padding = isAtlasTemplate(templateName) ? 34 : 34
+    this.width = isWideTemplate(templateName) ? 1280 : 760
+    this.padding = 34
     this.renderScale = normalizeRenderScale(options.renderScale ?? data.renderScale ?? process.env.LOTUS_RENDER_SCALE ?? 1)
     this.commands = []
     this.y = this.padding
@@ -117,6 +117,7 @@ class SkiaRenderer {
     if (this.templateName === "atlas-result") return this.buildAtlasResult()
     if (this.templateName === "atlas-challenge") return this.buildAtlasChallenge()
     if (this.templateName === "atlas-item") return this.buildAtlasItem()
+    if (this.templateName === "help") return this.buildHelp()
     return this.buildStatus()
   }
 
@@ -184,6 +185,20 @@ class SkiaRenderer {
       width: this.innerWidth(),
     })
     this.gridItems(this.data.items || [], 2)
+    this.footer()
+  }
+
+  buildHelp() {
+    this.hero({
+      title: this.data.title || "荷花插件指令帮助",
+      subtitle: this.data.subtitle || "",
+      badge: this.data.badge || "HELP",
+      message: this.data.message || "",
+      width: this.innerWidth(),
+    })
+    this.drawTextCards(this.data.sections || [], 3, "title", "body")
+    this.sectionTitle("Git 仓库文档")
+    this.drawTextCards([{ title: "完整指令文档", body: this.data.documentUrl || "-" }], 1, "title", "body")
     this.footer()
   }
 
@@ -2086,6 +2101,10 @@ function normalizeBackgroundSources(data = {}) {
 
 function isAtlasTemplate(templateName) {
   return /^(?:atlas-|achievement-)/.test(templateName)
+}
+
+function isWideTemplate(templateName) {
+  return templateName === "help" || isAtlasTemplate(templateName)
 }
 
 function normalizeRenderScale(value) {

@@ -1,6 +1,6 @@
 # 远程 spawn
 
-返回：[项目主页](../README.md) / [文档目录](README.md)
+返回：[项目主页](../README.md) / [文档目录](README.md) / [致谢与引用](references.md)
 
 远程命令、上传、下载都必须满足：
 

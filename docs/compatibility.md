@@ -1,6 +1,6 @@
 # 兼容与接管模式
 
-返回：[项目主页](../README.md) / [文档目录](README.md) / [安装与部署](installation.md)
+返回：[项目主页](../README.md) / [文档目录](README.md) / [安装与部署](installation.md) / [致谢与引用](references.md)
 
 ## 默认行为
 

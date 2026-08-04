@@ -1,6 +1,6 @@
 # 登录与多 profile
 
-返回：[项目主页](../README.md) / [文档目录](README.md)
+返回：[项目主页](../README.md) / [文档目录](README.md) / [致谢与引用](references.md)
 
 一个 QQ 最多允许 `1..255` 个 Lotus profile。
 

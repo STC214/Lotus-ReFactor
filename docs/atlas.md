@@ -1,6 +1,6 @@
 # 图鉴与成就总览
 
-返回：[项目主页](../README.md) / [文档目录](README.md)
+返回：[项目主页](../README.md) / [文档目录](README.md) / [致谢与引用](references.md)
 
 图鉴数据来自 `nanoka-atlas-backend`。插件侧负责触发更新、维护本地索引、注册查询指令和渲染图片。
 

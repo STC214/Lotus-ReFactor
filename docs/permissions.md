@@ -1,6 +1,6 @@
 # 权限系统
 
-返回：[项目主页](../README.md) / [文档目录](README.md)
+返回：[项目主页](../README.md) / [文档目录](README.md) / [致谢与引用](references.md)
 
 荷花插件使用 scope 型权限，不再使用旧的单一黑白名单模型。
 

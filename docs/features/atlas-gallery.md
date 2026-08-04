@@ -1,6 +1,6 @@
 # 图鉴查询-多游戏资料
 
-返回：[上一级](../atlas.md) / [文档目录](../README.md) / [小功能索引](README.md)
+返回：[上一级](../atlas.md) / [文档目录](../README.md) / [小功能索引](README.md) / [致谢与引用](../references.md)
 
 ## 功能特性
 

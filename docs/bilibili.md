@@ -1,6 +1,6 @@
 # B 站解析与下载
 
-返回：[项目主页](../README.md) / [文档目录](README.md)
+返回：[项目主页](../README.md) / [文档目录](README.md) / [致谢与引用](references.md)
 
 ## 功能特性
 

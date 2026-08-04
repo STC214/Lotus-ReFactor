@@ -1,10 +1,12 @@
 # 指令索引
 
-返回：[项目主页](../README.md) / [文档目录](README.md)
+返回：[项目主页](../README.md) / [文档目录](README.md) / [致谢与引用](references.md)
 
 profile 后缀默认支持 `1..255`。没有后缀时使用 profile 1；例如 `#扫码登录2`、`#体力2`、`*末日2`。
 
 按功能阅读说明见 [文档目录](README.md) 和 [小功能索引](features/README.md)。
+
+发送 `#荷花帮助` 或 `#自动签到帮助` 会返回本地渲染的完整指令图片卡片；卡片内容直接读取本文件，末行附当前维护仓库地址：[Git 指令文档](https://github.com/STC214/Lotus-ReFactor/blob/main/docs/commands.md)。
 
 ## 基础
 

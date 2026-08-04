@@ -2,7 +2,7 @@
 
 > 首次启动会测试背景接口并下载 10 张图片到 `data/render-backgrounds`；默认每天 00:10 更新。更新失败时保留旧图片并按配置重试，详见 [本地背景池](./features/render-background-pool.md)。
 
-返回：[项目主页](../README.md) / [文档目录](README.md)
+返回：[项目主页](../README.md) / [文档目录](README.md) / [致谢与引用](references.md)
 
 ## 环境
 
@@ -33,7 +33,7 @@ Debian 等发行版可能移除 Python 自带的 `ensurepip`。插件会先尝�
 
 ## 安装
 
-在 Yunzai 根目录安装锅巴与 Lotus：
+在 Yunzai 根目录安装锅巴与 Lotus。下例使用包含本文所述功能的当前维护仓库；上游来源为 [MOPELotus/Lotus-ReFactor](https://github.com/MOPELotus/Lotus-ReFactor)，完整关系见[致谢与引用](references.md)：
 
 ```bash
 cd /root/Yunzai
@@ -78,6 +78,14 @@ allowBuilds:
 保存后回到 Yunzai 根目录重新执行 `pnpm install` 或 `pnpm rebuild skia-canvas`。
 
 插件首次加载时会自动生成 `config/global.yaml`。如果已经安装锅巴插件，可以直接在锅巴面板里修改荷花插件的全局配置。
+
+如果希望对照上游原始实现，可单独查看：
+
+```text
+https://github.com/MOPELotus/Lotus-ReFactor
+```
+
+不要在同一个 `plugins/Lotus-Plugin` 工作树里混用两个仓库的文件；切换来源前先备份 `config/` 与 `data/`。
 
 如果 clone 时没有拉子模块：
 

@@ -1,6 +1,6 @@
 # 初始化
 
-返回：[项目主页](../README.md) / [文档目录](README.md)
+返回：[项目主页](../README.md) / [文档目录](README.md) / [致谢与引用](references.md)
 
 ## 基础配置
 

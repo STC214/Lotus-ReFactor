@@ -1,6 +1,6 @@
 # 个人查询总览
 
-返回：[项目主页](../README.md) / [文档目录](README.md)
+返回：[项目主页](../README.md) / [文档目录](README.md) / [致谢与引用](references.md)
 
 个人查询模块按 profile 和 UID 处理原神、星铁、绝区零数据。所有入口都避免把 profile 序号当作游戏 UID；UID 仍按 8-10 位游戏 UID 处理。
 
