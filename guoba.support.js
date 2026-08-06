@@ -123,7 +123,7 @@ const GUOBA_SCHEMAS = [
   number("render.background_timeout_ms", "背景加载超时", "接口测速与单张下载超时，单位毫秒。"),
   sw("render.background_pool_enable", "启用本地背景池", "首次启动自动测速下载；之后渲染只读取本地图片。"),
   number("render.background_pool_size", "本地背景数量", "每次更新保留的图片数，默认 10。"),
-  cron("render.background_refresh_cron", "背景更新时间", "每天按此时间重新测速、下载新图片并删除上一批。"),
+  ...schedule("render.background_refresh_cron", "背景更新时间", "每天按此时间重新测速、下载新图片并删除上一批。"),
   number("render.background_download_retries", "单接口下载重试", "图片重复或失败时的重试系数。"),
   sw("render.background_retry_enable", "更新失败自动重试", "每日更新失败后继续使用旧图片，并按下方间隔在当天重试。"),
   textArea("render.background_retry_delays_minutes", "失败重试间隔", "每行一个分钟数；默认依次等待 10、30、60 分钟。"),
@@ -137,10 +137,10 @@ const GUOBA_SCHEMAS = [
   ], "档位越高，CPU 与内存负担越大。"),
 
   group("签到调度"),
-  cron("scheduler.plan_generate_cron", "生成计划时间", "每天按此 cron 触发签到计划生成。"),
+  ...schedule("scheduler.plan_generate_cron", "生成计划时间", "每天按此 schedule 触发签到计划生成。"),
   input("scheduler.plan_date_cutoff_time", "当日/次日计划分界", "格式 HH:mm。生成时间早于此时刻则生成当日计划，等于或晚于此时刻则生成次日计划，默认 13:00。"),
-  cron("scheduler.run_due_cron", "到期扫描频率", "扫描到期任务并执行签到。"),
-  cron("scheduler.catch_up_cron", "计划补偿检查", "错过计划生成任务时检查并补建。"),
+  ...schedule("scheduler.run_due_cron", "到期扫描频率", "扫描到期任务并执行签到。"),
+  ...schedule("scheduler.catch_up_cron", "计划补偿检查", "错过计划生成任务时检查并补建。"),
   select("scheduler.mode", "全局签到模式", [
     { label: "固定时间", value: "fixed" },
     { label: "随机时间", value: "random" },
@@ -264,7 +264,7 @@ const GUOBA_SCHEMAS = [
   group("网易云任务"),
   sw("netease_partner.enable", "启用网易云任务", "总开关。"),
   input("netease_partner.api_url", "网易云接口", "本地或远程 API 地址。"),
-  cron("netease_partner.schedule", "执行时间", "自动任务 cron。"),
+  ...schedule("netease_partner.schedule", "执行时间", "自动任务 schedule。"),
   sw("netease_partner.auto_catch_up", "启动补跑", "错过当天任务后启动补跑。"),
   sw("netease_partner.notify_master", "给主人发结果图", "自动任务完成后私聊给主人发送图片报告。"),
   number("netease_partner.login_timeout_ms", "登录超时", "单位毫秒。"),
@@ -294,8 +294,8 @@ const GUOBA_SCHEMAS = [
   number("atlas.update_timeout_ms", "图鉴更新超时", "单位毫秒。"),
   number("atlas.update_output_limit", "图鉴输出限制", "超过后截断。"),
   sw("atlas.auto_update.enable", "启用图鉴定时更新", "按版本变化自动增量更新。"),
-  cron("atlas.auto_update.check_cron", "图鉴检查频率", "检查版本变化的 cron。"),
-  cron("atlas.auto_update.challenge_cron", "挑战刷新频率", "挑战轮换独立增量刷新的 cron。"),
+  ...schedule("atlas.auto_update.check_cron", "图鉴检查频率", "检查版本变化的 schedule。"),
+  ...schedule("atlas.auto_update.challenge_cron", "挑战刷新频率", "挑战轮换独立增量刷新的 schedule。"),
   sw("atlas.auto_update.run_on_missing_data", "缺数据时全量抓取", "首次缺数据时自动全量抓取。"),
 
   group("权限"),
@@ -353,6 +353,11 @@ export function toGuobaFormData(config) {
   const result = {}
   for (const schema of GUOBA_SCHEMAS) {
     if (!schema.field) continue
+    if (schema.scheduleField) {
+      const state = cronToScheduleState(getPath(config, schema.scheduleField))
+      setPath(result, schema.field, state[schema.field.split(".").pop()])
+      continue
+    }
     let value = getPath(config, schema.field)
     if (CRON_FIELDS.has(schema.field)) value = quartzCronToGuobaCron(value)
     setPath(result, schema.field, ARRAY_FIELDS.has(schema.field) ? arrayToText(value) : value)
@@ -362,14 +367,27 @@ export function toGuobaFormData(config) {
 
 export function applyGuobaFormData(config, data = {}) {
   const next = structuredClone(config)
+  const schedules = new Map()
   for (const schema of GUOBA_SCHEMAS) {
-    if (!schema.field || !hasSubmittedValue(data, schema.field)) continue
+    if (!schema.field) continue
+    if (schema.scheduleField) {
+      const submitted = hasSubmittedValue(data, schema.field)
+      if (submitted) {
+        const part = schema.field.split(".").pop()
+        const state = schedules.get(schema.scheduleField) || cronToScheduleState(getPath(next, schema.scheduleField))
+        state[part] = getSubmittedValue(data, schema.field)
+        schedules.set(schema.scheduleField, state)
+      }
+      continue
+    }
+    if (!hasSubmittedValue(data, schema.field)) continue
     let value = getSubmittedValue(data, schema.field)
     if (ARRAY_FIELDS.has(schema.field)) value = textToArray(value)
     if (NUMBER_FIELDS.has(schema.field)) value = toNumber(value)
     if (CRON_FIELDS.has(schema.field)) value = guobaCronToQuartzCron(value)
     setPath(next, schema.field, value)
   }
+  for (const [field, state] of schedules) setPath(next, field, scheduleStateToCron(state))
   return next
 }
 
@@ -457,18 +475,45 @@ function select(field, label, options, bottomHelpMessage = "") {
   }
 }
 
-function cron(field, label, bottomHelpMessage = "") {
-  return {
-    field,
-    label,
-    bottomHelpMessage: `${bottomHelpMessage} Use 24-hour time; choose minute/hour/day/week/month recurrence. Values are saved as 7-field Quartz cron.`,
-    component: "EasyCron",
-    componentProps: {
-      placeholder: label,
-      hideSecond: false,
-      hideYear: false,
-    },
-  }
+function schedule(field, label, bottomHelpMessage = "") {
+  const prefix = `__schedule.${field}`
+  const meta = { scheduleField: field }
+  return [
+    { ...meta, field: `${prefix}.frequency`, label: `${label}: \u9891\u7387`, bottomHelpMessage, component: "Select", componentProps: { options: [
+      { label: "\u6bcf\u5206\u949f", value: "minutely" }, { label: "\u6bcf\u5c0f\u65f6", value: "hourly" },
+      { label: "\u6bcf\u5929", value: "daily" }, { label: "\u6bcf\u5468", value: "weekly" }, { label: "\u6bcf\u6708", value: "monthly" },
+    ] } },
+    { ...meta, field: `${prefix}.interval`, label: `${label}: \u95f4\u9694`, bottomHelpMessage: "\u586b\u5199\u6bcf\u591a\u5c11\u5206\u949f\u3001\u5c0f\u65f6\u6216\u5929\u6267\u884c\u4e00\u6b21\u3002", component: "InputNumber", componentProps: { min: 1, max: 365, style: { width: "100%" } } },
+    { ...meta, field: `${prefix}.time`, label: `${label}: \u65f6\u95f4`, bottomHelpMessage: "24\u5c0f\u65f6\u5236\uff0c\u683c\u5f0f HH:mm:ss\uff1b\u6309\u5206\u949f\u6216\u5c0f\u65f6\u6267\u884c\u65f6\u53ef\u7559\u7a7a\u3002", component: "Input", componentProps: { type: "time", step: 1, format: "HH:mm:ss", placeholder: "HH:mm:ss" } },
+    { ...meta, field: `${prefix}.weekday`, label: `${label}: \u661f\u671f`, bottomHelpMessage: "\u6bcf\u5468\u6267\u884c\u65f6\u4f7f\u7528\uff0c1\u4e3a\u5468\u4e00\uff0c7\u4e3a\u5468\u65e5\u3002", component: "Select", componentProps: { options: [1, 2, 3, 4, 5, 6, 7].map(value => ({ label: `\u661f\u671f${value}`, value })) } },
+    { ...meta, field: `${prefix}.monthDay`, label: `${label}: \u6bcf\u6708\u65e5\u671f`, bottomHelpMessage: "\u6bcf\u6708\u6267\u884c\u65f6\u586b\u5199 1-31\u3002", component: "InputNumber", componentProps: { min: 1, max: 31, style: { width: "100%" } } },
+  ]
+}
+
+function cronToScheduleState(value = "") {
+  const parts = String(value || "").trim().split(/\s+/).filter(Boolean)
+  const p = parts.length === 7 ? parts : parts.length === 6 ? [...parts, "*"] : parts.length === 5 ? ["0", ...parts, "*"] : ["0", "0", "0", "*", "*", "?", "*"]
+  const time = `${String(p[2]).padStart(2, "0")}:${String(p[1]).padStart(2, "0")}:${String(p[0]).padStart(2, "0")}`
+  if (/^\*\/\d+$/.test(p[1]) && p[2] === "*") return { frequency: "minutely", interval: Number(p[1].slice(2)), time, weekday: 1, monthDay: 1 }
+  if (/^\*\/\d+$/.test(p[2]) && /^\d+$/.test(p[1])) return { frequency: "hourly", interval: Number(p[2].slice(2)), time, weekday: 1, monthDay: 1 }
+  if (/^\d+$/.test(p[6]) && p[3] === "?") return { frequency: "weekly", interval: 1, time, weekday: Number(p[6]), monthDay: 1 }
+  if (/^\d+$/.test(p[3]) && p[5] === "?") return { frequency: "monthly", interval: 1, time, weekday: 1, monthDay: Number(p[3]) }
+  return { frequency: "daily", interval: 1, time, weekday: 1, monthDay: 1 }
+}
+
+function scheduleStateToCron(state = {}) {
+  const frequency = state.frequency || "daily"
+  const interval = Math.max(1, Number(state.interval) || 1)
+  const [hour = "00", minute = "00", second = "00"] = String(state.time || "00:00:00").split(":")
+  const h = String(Math.min(23, Number(hour) || 0)).padStart(2, "0")
+  const m = String(Math.min(59, Number(minute) || 0)).padStart(2, "0")
+  const sec = String(Math.min(59, Number(second) || 0)).padStart(2, "0")
+  if (frequency === "minutely") return `0 */${interval} * * * ? *`
+  if (frequency === "hourly") return `0 0 */${interval} * * ? *`
+  if (frequency === "weekly") return `0 ${m} ${h} ? * ${Math.min(7, Math.max(1, Number(state.weekday) || 1))} *`.replace(/^0 /, `${sec} `)
+  if (frequency === "monthly") return `${sec} ${m} ${h} ${Math.min(31, Math.max(1, Number(state.monthDay) || 1))} * ? *`
+  if (interval > 1) return `${sec} ${m} ${h} */${interval} * ? *`
+  return `${sec} ${m} ${h} * * ? *`
 }
 
 function guobaCronToQuartzCron(value = "") {

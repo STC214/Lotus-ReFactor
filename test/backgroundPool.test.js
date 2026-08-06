@@ -225,7 +225,7 @@ test("super-resolution presets map to bounded render scales", () => {
 test("default config and Guoba expose background schedule and resolution preset", () => {
   assert.deepEqual(validateGlobalConfig(createDefaultGlobalConfig()), [])
   const fields = new Set(GUOBA_SCHEMAS.map(item => item.field).filter(Boolean))
-  assert.equal(fields.has("render.background_refresh_cron"), true)
+  assert.equal(GUOBA_SCHEMAS.some(item => item.scheduleField === "render.background_refresh_cron"), true)
   assert.equal(fields.has("render.super_resolution_preset"), true)
   assert.equal(fields.has("render.background_retry_enable"), true)
   assert.equal(fields.has("render.background_retry_delays_minutes"), true)

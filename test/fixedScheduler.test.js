@@ -58,15 +58,18 @@ test("plan date cutoff is configurable and exposed in Guoba", () => {
 })
 
 test("Guoba renders 24-hour time fields and persists 7-field cron", () => {
+  assert.equal(GUOBA_SCHEMAS.filter(item => item.scheduleField).length, 35)
+  assert.equal(GUOBA_SCHEMAS.filter(item => item.scheduleField).every(item => !["EasyCron", "Cron"].includes(item.component)), true)
   const config = createDefaultGlobalConfig()
   config.scheduler.plan_generate_cron = "0 30 23 * * ? *"
   const form = toGuobaFormData(config)
-  assert.equal(form.scheduler.plan_generate_cron, "0 30 23 * * * *")
-  const schema = GUOBA_SCHEMAS.find(item => item.field === "scheduler.fixed_time")
+  assert.equal(form.__schedule.scheduler.plan_generate_cron.frequency, "daily")
+  assert.equal(form.__schedule.scheduler.plan_generate_cron.time, "23:30:00")
+  const schema = GUOBA_SCHEMAS.find(item => item.field === "__schedule.scheduler.plan_generate_cron.time")
   assert.equal(schema?.componentProps?.type, "time")
-  assert.equal(schema?.componentProps?.format, "HH:mm")
-  const next = applyGuobaFormData(config, { scheduler: { plan_generate_cron: "30 23 * * *" } })
-  assert.equal(next.scheduler.plan_generate_cron, "0 30 23 * * * *")
+  assert.equal(schema?.componentProps?.format, "HH:mm:ss")
+  const next = applyGuobaFormData(config, { __schedule: { scheduler: { plan_generate_cron: { frequency: "daily", interval: 1, time: "23:30:15", weekday: 1, monthDay: 1 } } } })
+  assert.equal(next.scheduler.plan_generate_cron, "15 30 23 * * ? *")
 })
 
 test("fixed plan respects global time and profile override", async t => {
