@@ -17,6 +17,7 @@ import { replyImage, replyText } from "../core/transport/reply.js"
 import { MiaoPanelBridge } from "../services/pluginBridge/miaoPanel.js"
 import { ZzzPanelBridge } from "../services/pluginBridge/zzzPanel.js"
 import { getRoleUid, importRuntimeModule, pickRole } from "../services/pluginBridge/common.js"
+import { parsePanelUidIndex, resolveEventUidByIndex } from "../services/pluginBridge/uidIndex.js"
 
 export class LotusPanelUpdate extends BasePlugin {
   constructor() {
@@ -26,6 +27,14 @@ export class LotusPanelUpdate extends BasePlugin {
       event: "message",
       priority: LOTUS_INTERCEPT_PRIORITY,
       rule: [
+        {
+          reg: "^#(原神)?(更新面板|面板更新|全部面板更新|更新全部面板)[uU][iI][dD][1-9]\\d{0,2}$",
+          fnc: "genshinPanelByUidIndex",
+        },
+        {
+          reg: "^(#星铁|\\*)(更新面板|面板更新|全部面板更新|更新全部面板)[uU][iI][dD][1-9]\\d{0,2}$",
+          fnc: "starRailPanelByUidIndex",
+        },
         {
           reg: `^#(原神)?(更新面板|面板更新|全部面板更新|更新全部面板)${PROFILE_ID_SUFFIX_PATTERN}$`,
           fnc: "genshinPanel",
@@ -64,6 +73,36 @@ export class LotusPanelUpdate extends BasePlugin {
 
   async zzzPanel() {
     return this.updatePanel("zzz")
+  }
+
+  async genshinPanelByUidIndex() {
+    return this.updatePanelByUidIndex("gs")
+  }
+
+  async starRailPanelByUidIndex() {
+    return this.updatePanelByUidIndex("sr")
+  }
+
+  async updatePanelByUidIndex(game) {
+    const index = parsePanelUidIndex(this.e.msg)
+    try {
+      const selection = await resolveEventUidByIndex(this.e, index, game)
+      const result = await new MiaoPanelBridge().updatePanelByUid({
+        e: this.e,
+        uid: selection.uid,
+        game,
+        forwardReplies: true,
+      })
+
+      if (!result.forwarded.length) {
+        const message = pickMessage(result.messages) || "面板更新已执行，但 miao-plugin 没有返回图片。"
+        await replyText(this, `[荷花插件]UID${selection.index}（${selection.uid}）：${message}`)
+      }
+    } catch (error) {
+      logger?.error?.(`[Lotus-Plugin] uid index panel update failed: ${error.stack || error.message}`)
+      await replyText(this, `[荷花插件]${error.message}`)
+    }
+    return true
   }
 
   async updatePanel(game) {

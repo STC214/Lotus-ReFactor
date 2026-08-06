@@ -37,7 +37,7 @@ export class LotusScheduler extends BasePlugin {
       },
       {
         name: "荷花插件生成签到计划",
-        cron: "0 0 0 * * ? *",
+        cron: "0 * * * * ? *",
         fnc: this.generateScheduledPlanTask.bind(this),
         log: false,
       },
@@ -62,7 +62,7 @@ export class LotusScheduler extends BasePlugin {
         },
         {
           name: "荷花插件生成签到计划",
-          cron: globalConfig.scheduler?.plan_generate_cron || "0 0 0 * * ? *",
+          cron: "0 * * * * ? *",
           fnc: this.generateScheduledPlanTask.bind(this),
           log: false,
         },
@@ -135,9 +135,20 @@ export class LotusScheduler extends BasePlugin {
     return true
   }
 
-  async generateScheduledPlanTask() {
+  async generateScheduledPlanTask(options = {}) {
     const globalConfig = await loadGlobalConfig()
     const now = new Date()
+    const configuredMinute = cronToMinuteOfDay(globalConfig.scheduler?.plan_generate_cron || "")
+    const currentMinute = now.getHours() * 60 + now.getMinutes()
+    if (!options.force && (!Number.isFinite(configuredMinute) || currentMinute !== configuredMinute)) {
+      return {
+        ok: true,
+        skipped: true,
+        reason: Number.isFinite(configuredMinute) ? "not_generation_minute" : "invalid_plan_generate_cron",
+        configuredMinute,
+        currentMinute,
+      }
+    }
     const date = planDateForGeneration(now, globalConfig.scheduler?.plan_generate_cron, globalConfig.scheduler?.plan_date_cutoff_time)
     const generated = await new ScheduledSigninService({
       scheduler: new SchedulerService({ config: globalConfig.scheduler }),
@@ -173,15 +184,23 @@ export class LotusScheduler extends BasePlugin {
       }
     }
     const currentMinute = now.getHours() * 60 + now.getMinutes()
-    if (currentMinute <= generateMinute) {
+    const elapsedMinutes = (currentMinute - generateMinute + 1440) % 1440
+    if (elapsedMinutes > 30) {
       return {
         ok: true,
         skipped: true,
-        reason: "before_generate_time",
+        reason: "outside_catch_up_window",
+        elapsedMinutes,
       }
     }
     const scheduler = new SchedulerService({ config: globalConfig.scheduler })
-    const date = planDateForGeneration(now, globalConfig.scheduler?.plan_generate_cron, globalConfig.scheduler?.plan_date_cutoff_time)
+    const generationDate = new Date(now.getTime())
+    if (currentMinute < generateMinute) generationDate.setDate(generationDate.getDate() - 1)
+    const date = planDateForGeneration(
+      generationDate,
+      globalConfig.scheduler?.plan_generate_cron,
+      globalConfig.scheduler?.plan_date_cutoff_time,
+    )
     const existing = await scheduler.getPlan(date)
     if (existing) {
       const pendingNotices = existing.entries.filter(entry => !entry.notified).length

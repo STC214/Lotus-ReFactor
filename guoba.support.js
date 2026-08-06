@@ -64,6 +64,15 @@ const NUMBER_FIELDS = new Set([
   "atlas.update_output_limit",
 ])
 
+const TIME_FIELDS = new Set([
+  "scheduler.plan_date_cutoff_time",
+  "scheduler.fixed_time",
+  "scheduler.random.window_start",
+  "scheduler.random.window_end",
+  "scheduler.late_registration.window_start",
+  "scheduler.late_registration.window_end",
+])
+
 const CRON_FIELDS = new Set([
   "render.background_refresh_cron",
   "scheduler.plan_generate_cron",
@@ -71,6 +80,7 @@ const CRON_FIELDS = new Set([
   "scheduler.catch_up_cron",
   "netease_partner.schedule",
   "atlas.auto_update.check_cron",
+  "atlas.auto_update.challenge_cron",
 ])
 
 const POLICY_OPTIONS = [
@@ -357,6 +367,7 @@ export function applyGuobaFormData(config, data = {}) {
     let value = getSubmittedValue(data, schema.field)
     if (ARRAY_FIELDS.has(schema.field)) value = textToArray(value)
     if (NUMBER_FIELDS.has(schema.field)) value = toNumber(value)
+    if (CRON_FIELDS.has(schema.field)) value = guobaCronToQuartzCron(value)
     setPath(next, schema.field, value)
   }
   return next
@@ -377,9 +388,9 @@ function input(field, label, bottomHelpMessage = "") {
     label,
     bottomHelpMessage,
     component: "Input",
-    componentProps: {
-      placeholder: label,
-    },
+    componentProps: TIME_FIELDS.has(field)
+      ? { type: "time", format: "HH:mm", placeholder: "HH:mm", step: 60 }
+      : { placeholder: label },
   }
 }
 
@@ -450,12 +461,23 @@ function cron(field, label, bottomHelpMessage = "") {
   return {
     field,
     label,
-    bottomHelpMessage,
+    bottomHelpMessage: `${bottomHelpMessage} Use 24-hour time; choose minute/hour/day/week/month recurrence. Values are saved as 7-field Quartz cron.`,
     component: "EasyCron",
     componentProps: {
       placeholder: label,
+      hideSecond: false,
+      hideYear: false,
     },
   }
+}
+
+function guobaCronToQuartzCron(value = "") {
+  const parts = String(value || "").trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return value
+  if (parts.length === 5) return ["0", ...parts, "*"].join(" ")
+  if (parts.length === 6) return [...parts, "*"].join(" ")
+  if (parts.length === 7) return parts.join(" ")
+  return value
 }
 
 function hasSubmittedValue(data, field) {

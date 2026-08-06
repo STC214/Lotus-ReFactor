@@ -7,7 +7,7 @@ import YAML from "yaml"
 
 import { validateGlobalConfig, validateProfile } from "../core/config/schema.js"
 import { createDefaultGlobalConfig } from "../core/config/defaults.js"
-import { GUOBA_SCHEMAS } from "../guoba.support.js"
+import { GUOBA_SCHEMAS, applyGuobaFormData, toGuobaFormData } from "../guoba.support.js"
 import { SchedulerService, planDateForGeneration } from "../core/scheduler/service.js"
 import { ScheduledSigninService } from "../services/checkin/scheduled.js"
 
@@ -55,6 +55,18 @@ test("plan date cutoff is configurable and exposed in Guoba", () => {
   const schema = GUOBA_SCHEMAS.find(item => item.field === "scheduler.plan_date_cutoff_time")
   assert.equal(schema?.component, "Input")
   assert.equal(GUOBA_SCHEMAS.some(item => item.field === "scheduler.enable"), false)
+})
+
+test("Guoba renders 24-hour time fields and persists 7-field cron", () => {
+  const config = createDefaultGlobalConfig()
+  config.scheduler.plan_generate_cron = "0 30 23 * * ? *"
+  const form = toGuobaFormData(config)
+  assert.equal(form.scheduler.plan_generate_cron, "0 30 23 * * * *")
+  const schema = GUOBA_SCHEMAS.find(item => item.field === "scheduler.fixed_time")
+  assert.equal(schema?.componentProps?.type, "time")
+  assert.equal(schema?.componentProps?.format, "HH:mm")
+  const next = applyGuobaFormData(config, { scheduler: { plan_generate_cron: "30 23 * * *" } })
+  assert.equal(next.scheduler.plan_generate_cron, "0 30 23 * * * *")
 })
 
 test("fixed plan respects global time and profile override", async t => {

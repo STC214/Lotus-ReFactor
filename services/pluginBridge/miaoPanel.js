@@ -29,6 +29,51 @@ export class MiaoPanelBridge {
       forwarded,
     }
   }
+
+  async updatePanelByUid({ e, uid, game = "gs", forwardReplies = true } = {}) {
+    const ProfileList = await this.loadProfileList()
+    const { event, messages, forwarded } = createMiaoUidEvent({
+      e,
+      uid,
+      game,
+      forwardReplies,
+    })
+
+    await ProfileList.refresh(event)
+    return {
+      ok: true,
+      game,
+      uid,
+      messages: messages.filter(Boolean),
+      forwarded,
+    }
+  }
+}
+
+export function createMiaoUidEvent({ e, uid, game = "gs", forwardReplies = true } = {}) {
+  if (!["gs", "sr"].includes(game)) {
+    throw new Error("miao UID 面板只支持原神和星铁")
+  }
+  const normalizedUid = String(uid || "")
+  if (!/^[1-9]\d{7,9}$/.test(normalizedUid)) {
+    throw new Error(`无效 UID：${normalizedUid || "空"}`)
+  }
+
+  const command = `${game === "sr" ? "#星铁" : "#原神"}更新面板${normalizedUid}`
+  const { event, messages, forwarded } = createIsolatedEvent(e, {
+    msg: command,
+    original_msg: command,
+    uid: normalizedUid,
+    game,
+    isSr: game === "sr",
+    mysSelfUid: true,
+    noTips: false,
+    forwardReplies,
+  })
+  delete event._mys
+  event.runtime = createUidScopedRuntime(event.runtime, event)
+
+  return { event, messages, forwarded, uid: normalizedUid, game }
 }
 
 export async function createMiaoProfileEvent({ e, profile, profileId = 1, game = "gs", msg, forwardReplies = true, registerProfile = registerProfileWithGenshin } = {}) {
@@ -100,6 +145,15 @@ export function createProfileScopedRuntime(runtime, { event, profile, profileId,
     }
   }
 
+  return scoped
+}
+
+export function createUidScopedRuntime(runtime, event) {
+  if (!runtime || typeof runtime !== "object") return runtime
+  const scoped = Object.create(Object.getPrototypeOf(runtime))
+  Object.assign(scoped, runtime)
+  scoped.e = event
+  scoped._mysInfo = {}
   return scoped
 }
 

@@ -246,7 +246,7 @@ export function normalizeSchedulerConfig(config = {}) {
     enable: config.enable ?? true,
     plan_generate_cron: config.plan_generate_cron || "0 0 0 * * ? *",
     run_due_cron: config.run_due_cron || "0 * * * * ? *",
-    catch_up_cron: config.catch_up_cron || "0 */10 * * * ? *",
+    catch_up_cron: config.catch_up_cron || "0 */5 * * * ? *",
     mode: config.mode || "fixed",
     fixed_time: config.fixed_time || "04:30",
     entry_timeout_minutes: positiveNumber(config.entry_timeout_minutes, 20),

@@ -11,6 +11,7 @@ test("help parser groups every documented backtick command", async () => {
   assert.equal(commands.includes("#荷花帮助"), true)
   assert.equal(commands.includes("#生成签到计划"), true)
   assert.equal(commands.includes("#初始化工具环境"), true)
+  assert.equal(commands.includes("#更新面板uid6"), true)
   assert.equal(commands.includes("#远程spawn <otp> <shell> <command>"), true)
 })
 
