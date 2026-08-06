@@ -1909,26 +1909,35 @@ class SkiaRenderer {
   }
 
   wrap(text, width, size = 16, maxLines = Infinity, weight = 650) {
-    const input = String(text || "").replace(/\s+/g, " ").trim()
-    if (!input) return []
+    const input = String(text || "")
+    if (!input.trim()) return []
     const canvas = wrapMeasureCanvas || (wrapMeasureCanvas = new Canvas(10, 10))
     const ctx = canvas.getContext("2d")
     ctx.font = `${weight} ${size}px ${FONT_FAMILY}, sans-serif`
     const lines = []
-    let line = ""
-    for (const char of input) {
-      const next = line + char
-      if (ctx.measureText(next).width > width && line) {
-        lines.push(line)
-        line = char
-        if (lines.length >= maxLines) break
-      } else {
-        line = next
+    for (const rawLine of input.split(/\r?\n/)) {
+      const paragraph = rawLine.replace(/\s+/g, " ").trim()
+      if (!paragraph) continue
+      let line = ""
+      for (const char of paragraph) {
+        const next = line + char
+        if (ctx.measureText(next).width > width && line) {
+          lines.push(line)
+          line = char
+          if (lines.length >= maxLines) break
+        } else {
+          line = next
+        }
       }
+      if (line && lines.length < maxLines) lines.push(line)
+      if (lines.length >= maxLines) break
     }
-    if (line && lines.length < maxLines) lines.push(line)
-    if (lines.length >= maxLines && input.length > lines.join("").length) {
-      lines[lines.length - 1] = `${lines[lines.length - 1].slice(0, -1)}…`
+    if (lines.length >= maxLines) {
+      const renderedLength = lines.join("").length
+      const sourceLength = input.replace(/\r?\n/g, "").length
+      if (sourceLength > renderedLength) {
+        lines[lines.length - 1] = `${lines[lines.length - 1].slice(0, -1)}?`
+      }
     }
     return lines
   }
