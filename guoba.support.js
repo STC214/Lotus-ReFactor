@@ -404,11 +404,13 @@ function input(field, label, bottomHelpMessage = "") {
   return {
     field,
     label,
+    labelWidth: 300,
+    itemProps: { labelCol: { style: { whiteSpace: "normal", lineHeight: "20px" } } },
     bottomHelpMessage,
     component: "Input",
     componentProps: TIME_FIELDS.has(field)
-      ? { type: "time", format: "HH:mm", placeholder: "HH:mm", step: 60 }
-      : { placeholder: label },
+      ? { type: "time", format: "HH:mm", placeholder: "HH:mm", step: 60, style: { width: "100%", maxWidth: "360px" } }
+      : { placeholder: label, style: { width: "100%", maxWidth: "360px" } },
   }
 }
 
@@ -416,6 +418,8 @@ function password(field, label, bottomHelpMessage = "") {
   return {
     field,
     label,
+    labelWidth: 300,
+    itemProps: { labelCol: { style: { whiteSpace: "normal", lineHeight: "20px" } } },
     bottomHelpMessage,
     component: "InputPassword",
     componentProps: {
@@ -428,11 +432,14 @@ function textArea(field, label, bottomHelpMessage = "") {
   return {
     field,
     label,
+    labelWidth: 300,
+    itemProps: { labelCol: { style: { whiteSpace: "normal", lineHeight: "20px" } } },
     bottomHelpMessage,
     component: "InputTextArea",
     componentProps: {
       rows: 3,
       placeholder: label,
+      style: { width: "100%", maxWidth: "520px" },
     },
   }
 }
@@ -441,6 +448,8 @@ function number(field, label, bottomHelpMessage = "") {
   return {
     field,
     label,
+    labelWidth: 300,
+    itemProps: { labelCol: { style: { whiteSpace: "normal", lineHeight: "20px" } } },
     bottomHelpMessage,
     component: "InputNumber",
     componentProps: {
@@ -448,6 +457,7 @@ function number(field, label, bottomHelpMessage = "") {
       placeholder: label,
       style: {
         width: "100%",
+        maxWidth: "320px",
       },
     },
   }
@@ -457,6 +467,8 @@ function sw(field, label, bottomHelpMessage = "") {
   return {
     field,
     label,
+    labelWidth: 300,
+    itemProps: { labelCol: { style: { whiteSpace: "normal", lineHeight: "20px" } } },
     bottomHelpMessage,
     component: "Switch",
   }
@@ -466,27 +478,28 @@ function select(field, label, options, bottomHelpMessage = "") {
   return {
     field,
     label,
+    labelWidth: 300,
+    itemProps: { labelCol: { style: { whiteSpace: "normal", lineHeight: "20px" } } },
     bottomHelpMessage,
     component: "Select",
     componentProps: {
       options,
       placeholder: label,
+      style: { width: "100%", maxWidth: "360px" },
     },
   }
 }
 
 function schedule(field, label, bottomHelpMessage = "") {
   const prefix = `__schedule.${field}`
-  const meta = { scheduleField: field }
+  const meta = { scheduleField: field, labelWidth: 300, itemProps: { labelCol: { style: { whiteSpace: "normal", lineHeight: "20px" } } } }
   return [
-    { ...meta, field: `${prefix}.frequency`, label: `${label}: \u9891\u7387`, bottomHelpMessage, component: "Select", componentProps: { options: [
-      { label: "\u6bcf\u5206\u949f", value: "minutely" }, { label: "\u6bcf\u5c0f\u65f6", value: "hourly" },
+    { ...meta, field: `${prefix}.frequency`, label: `${label}: \u5468\u671f(\u5355\u9009)`, bottomHelpMessage, component: "Select", componentProps: { options: [
       { label: "\u6bcf\u5929", value: "daily" }, { label: "\u6bcf\u5468", value: "weekly" }, { label: "\u6bcf\u6708", value: "monthly" },
+      { label: "\u6bcf\u5c0f\u65f6", value: "hourly" }, { label: "\u6bcf\u5206\u949f", value: "minutely" },
     ] } },
-    { ...meta, field: `${prefix}.interval`, label: `${label}: \u95f4\u9694`, bottomHelpMessage: "\u586b\u5199\u6bcf\u591a\u5c11\u5206\u949f\u3001\u5c0f\u65f6\u6216\u5929\u6267\u884c\u4e00\u6b21\u3002", component: "InputNumber", componentProps: { min: 1, max: 365, style: { width: "100%" } } },
-    { ...meta, field: `${prefix}.time`, label: `${label}: \u65f6\u95f4`, bottomHelpMessage: "24\u5c0f\u65f6\u5236\uff0c\u683c\u5f0f HH:mm:ss\uff1b\u6309\u5206\u949f\u6216\u5c0f\u65f6\u6267\u884c\u65f6\u53ef\u7559\u7a7a\u3002", component: "Input", componentProps: { type: "time", step: 1, format: "HH:mm:ss", placeholder: "HH:mm:ss" } },
-    { ...meta, field: `${prefix}.weekday`, label: `${label}: \u661f\u671f`, bottomHelpMessage: "\u6bcf\u5468\u6267\u884c\u65f6\u4f7f\u7528\uff0c1\u4e3a\u5468\u4e00\uff0c7\u4e3a\u5468\u65e5\u3002", component: "Select", componentProps: { options: [1, 2, 3, 4, 5, 6, 7].map(value => ({ label: `\u661f\u671f${value}`, value })) } },
-    { ...meta, field: `${prefix}.monthDay`, label: `${label}: \u6bcf\u6708\u65e5\u671f`, bottomHelpMessage: "\u6bcf\u6708\u6267\u884c\u65f6\u586b\u5199 1-31\u3002", component: "InputNumber", componentProps: { min: 1, max: 31, style: { width: "100%" } } },
+    { ...meta, field: `${prefix}.interval`, label: `${label}: \u95f4\u9694`, bottomHelpMessage: "\u586b\u5199\u6bcf\u591a\u5c11\u5206\u949f\u3001\u5c0f\u65f6\u6216\u5929\u6267\u884c\u4e00\u6b21\u3002", component: "InputNumber", componentProps: { min: 1, max: 365, style: { width: "100%", maxWidth: "320px" } } },
+    { ...meta, field: `${prefix}.time`, label: `${label}: \u65f6\u95f4`, bottomHelpMessage: "24\u5c0f\u65f6\u5236\uff1b\u6bcf\u5929\u586b HH:mm:ss\uff0c\u6bcf\u5468\u6216\u6bcf\u6708\u5728\u540e\u9762\u52a0\u5468\u671f\u65e5\uff0c\u4f8b\u5982 HH.mm.ss 4\u3002", component: "Input", componentProps: { type: "text", placeholder: "HH:mm:ss", style: { width: "100%", maxWidth: "360px" } } },
   ]
 }
 
@@ -494,24 +507,26 @@ function cronToScheduleState(value = "") {
   const parts = String(value || "").trim().split(/\s+/).filter(Boolean)
   const p = parts.length === 7 ? parts : parts.length === 6 ? [...parts, "*"] : parts.length === 5 ? ["0", ...parts, "*"] : ["0", "0", "0", "*", "*", "?", "*"]
   const time = `${String(p[2]).padStart(2, "0")}:${String(p[1]).padStart(2, "0")}:${String(p[0]).padStart(2, "0")}`
-  if (/^\*\/\d+$/.test(p[1]) && p[2] === "*") return { frequency: "minutely", interval: Number(p[1].slice(2)), time, weekday: 1, monthDay: 1 }
-  if (/^\*\/\d+$/.test(p[2]) && /^\d+$/.test(p[1])) return { frequency: "hourly", interval: Number(p[2].slice(2)), time, weekday: 1, monthDay: 1 }
-  if (/^\d+$/.test(p[6]) && p[3] === "?") return { frequency: "weekly", interval: 1, time, weekday: Number(p[6]), monthDay: 1 }
-  if (/^\d+$/.test(p[3]) && p[5] === "?") return { frequency: "monthly", interval: 1, time, weekday: 1, monthDay: Number(p[3]) }
-  return { frequency: "daily", interval: 1, time, weekday: 1, monthDay: 1 }
+  if (/^\*\/\d+$/.test(p[1]) && p[2] === "*") return { frequency: "minutely", interval: Number(p[1].slice(2)), time: "\u65e0\u9700\u586b\u5199" }
+  if (/^\*\/\d+$/.test(p[2]) && /^\d+$/.test(p[1])) return { frequency: "hourly", interval: Number(p[2].slice(2)), time: "\u65e0\u9700\u586b\u5199" }
+  if (/^\d+$/.test(p[6]) && p[3] === "?") return { frequency: "weekly", interval: 1, time: `${time} ${Number(p[6])}` }
+  if (/^\d+$/.test(p[3]) && p[5] === "?") return { frequency: "monthly", interval: 1, time: `${time} ${Number(p[3])}` }
+  return { frequency: "daily", interval: 1, time }
 }
 
 function scheduleStateToCron(state = {}) {
   const frequency = state.frequency || "daily"
   const interval = Math.max(1, Number(state.interval) || 1)
-  const [hour = "00", minute = "00", second = "00"] = String(state.time || "00:00:00").split(":")
+  const tokens = String(state.time || "00:00:00").trim().split(/\s+/)
+  const [hour = "00", minute = "00", second = "00"] = String(tokens[0]).replace(/\./g, ":").split(":")
+  const periodDay = Math.max(1, Number(tokens[1]) || 1)
   const h = String(Math.min(23, Number(hour) || 0)).padStart(2, "0")
   const m = String(Math.min(59, Number(minute) || 0)).padStart(2, "0")
   const sec = String(Math.min(59, Number(second) || 0)).padStart(2, "0")
   if (frequency === "minutely") return `0 */${interval} * * * ? *`
   if (frequency === "hourly") return `0 0 */${interval} * * ? *`
-  if (frequency === "weekly") return `0 ${m} ${h} ? * ${Math.min(7, Math.max(1, Number(state.weekday) || 1))} *`.replace(/^0 /, `${sec} `)
-  if (frequency === "monthly") return `${sec} ${m} ${h} ${Math.min(31, Math.max(1, Number(state.monthDay) || 1))} * ? *`
+  if (frequency === "weekly") return `0 ${m} ${h} ? * ${Math.min(7, Math.max(1, periodDay))} *`.replace(/^0 /, `${sec} `)
+  if (frequency === "monthly") return `${sec} ${m} ${h} ${Math.min(31, Math.max(1, periodDay))} * ? *`
   if (interval > 1) return `${sec} ${m} ${h} */${interval} * ? *`
   return `${sec} ${m} ${h} * * ? *`
 }
