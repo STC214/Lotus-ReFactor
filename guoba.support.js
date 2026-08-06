@@ -491,7 +491,7 @@ function select(field, label, options, bottomHelpMessage = "") {
 }
 
 function schedule(field, label, bottomHelpMessage = "") {
-  const prefix = `__schedule.${field}`
+  const prefix = `__schedule_v2.${field}`
   const meta = { scheduleField: field, labelWidth: 300, itemProps: { labelCol: { style: { whiteSpace: "normal", lineHeight: "20px" } } } }
   return [
     { ...meta, field: `${prefix}.frequency`, label: `${label}: \u5468\u671f(\u5355\u9009)`, bottomHelpMessage, component: "Select", componentProps: { options: [
@@ -507,8 +507,8 @@ function cronToScheduleState(value = "") {
   const parts = String(value || "").trim().split(/\s+/).filter(Boolean)
   const p = parts.length === 7 ? parts : parts.length === 6 ? [...parts, "*"] : parts.length === 5 ? ["0", ...parts, "*"] : ["0", "0", "0", "*", "*", "?", "*"]
   const time = `${String(p[2]).padStart(2, "0")}:${String(p[1]).padStart(2, "0")}:${String(p[0]).padStart(2, "0")}`
-  if (/^\*\/\d+$/.test(p[1]) && p[2] === "*") return { frequency: "minutely", interval: Number(p[1].slice(2)), time: "\u65e0\u9700\u586b\u5199" }
-  if (/^\*\/\d+$/.test(p[2]) && /^\d+$/.test(p[1])) return { frequency: "hourly", interval: Number(p[2].slice(2)), time: "\u65e0\u9700\u586b\u5199" }
+  if ((p[1] === "*" || /^\*\/\d+$/.test(p[1])) && p[2] === "*") return { frequency: "minutely", interval: p[1] === "*" ? 1 : Number(p[1].slice(2)), time: "\u65e0\u9700\u586b\u5199" }
+  if ((p[2] === "*" || /^\*\/\d+$/.test(p[2])) && /^\d+$/.test(p[1])) return { frequency: "hourly", interval: p[2] === "*" ? 1 : Number(p[2].slice(2)), time: "\u65e0\u9700\u586b\u5199" }
   if (/^\d+$/.test(p[6]) && p[3] === "?") return { frequency: "weekly", interval: 1, time: `${time} ${Number(p[6])}` }
   if (/^\d+$/.test(p[3]) && p[5] === "?") return { frequency: "monthly", interval: 1, time: `${time} ${Number(p[3])}` }
   return { frequency: "daily", interval: 1, time }

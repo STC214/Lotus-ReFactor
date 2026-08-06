@@ -63,12 +63,12 @@ test("Guoba renders 24-hour time fields and persists 7-field cron", () => {
   const config = createDefaultGlobalConfig()
   config.scheduler.plan_generate_cron = "0 30 23 * * ? *"
   const form = toGuobaFormData(config)
-  assert.equal(form.__schedule.scheduler.plan_generate_cron.frequency, "daily")
-  assert.equal(form.__schedule.scheduler.plan_generate_cron.time, "23:30:00")
-  const schema = GUOBA_SCHEMAS.find(item => item.field === "__schedule.scheduler.plan_generate_cron.time")
+  assert.equal(form.__schedule_v2.scheduler.plan_generate_cron.frequency, "daily")
+  assert.equal(form.__schedule_v2.scheduler.plan_generate_cron.time, "23:30:00")
+  const schema = GUOBA_SCHEMAS.find(item => item.field === "__schedule_v2.scheduler.plan_generate_cron.time")
   assert.equal(schema?.componentProps?.type, "text")
   assert.equal(schema?.componentProps?.placeholder, "HH:mm:ss")
-  const next = applyGuobaFormData(config, { __schedule: { scheduler: { plan_generate_cron: { frequency: "daily", interval: 1, time: "23:30:15" } } } })
+  const next = applyGuobaFormData(config, { __schedule_v2: { scheduler: { plan_generate_cron: { frequency: "daily", interval: 1, time: "23:30:15" } } } })
   assert.equal(next.scheduler.plan_generate_cron, "15 30 23 * * ? *")
 })
 
