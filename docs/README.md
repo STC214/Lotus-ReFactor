@@ -10,6 +10,7 @@
 
 - [安装与部署](installation.md)
 - [兼容与接管模式](compatibility.md)
+- [Guoba 设置页完整使用手册](guoba-settings.md)
 - [初始化](initialization.md)
   - [工具链-BBDown/ffmpeg/aria2](features/tools.md)
 

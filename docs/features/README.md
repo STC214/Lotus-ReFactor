@@ -40,3 +40,5 @@
 - [B 站解析与下载](../bilibili.md)
 - [网易云合伙人-自动任务](netease-partner.md)
 - [群管理-成员导出与退群清理](group-manager.md)
+
+- [Guoba 设置项使用说明](../guoba-settings.md)
