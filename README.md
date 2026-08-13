@@ -14,6 +14,8 @@
 
 完整使用说明请从 [文档目录](docs/README.md) 进入。
 
+后续由自动化维护代理接手安装、Docker 部署或历史故障排查时，先阅读[安装与故障处置运行手册](docs/maintenance-runbook.md)。
+
 ## 从已有 Yunzai 安装当前完全体
 
 如果 Yunzai/TRSS-Yunzai 已经可以正常启动，按以下顺序安装即可：

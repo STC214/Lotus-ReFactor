@@ -8,6 +8,7 @@
 
 ## 安装与运行
 
+- [荷花插件安装与故障处置运行手册（维护代理专用）](maintenance-runbook.md)
 - [安装与部署](installation.md)
 - [兼容与接管模式](compatibility.md)
 - [Guoba 设置页完整使用手册](guoba-settings.md)
