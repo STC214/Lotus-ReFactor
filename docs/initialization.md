@@ -2,6 +2,33 @@
 
 返回：[项目主页](../README.md) / [文档目录](README.md) / [致谢与引用](references.md)
 
+## 完全体初始化顺序
+
+完成源码与 Node 依赖安装并重启 Yunzai 后，按以下顺序操作：
+
+```text
+1. #荷花状态          验证插件与图片渲染
+2. #荷花帮助          验证帮助文档和长图生成
+3. #初始化签到环境    准备 Python、MihoyoBBSTools、test_nine 和模型
+4. #初始化工具环境    独立复核 BBDown、ffmpeg、ffprobe、ffplay、aria2c
+5. #testnine状态       验证本地验证码服务
+6. #全量更新图鉴      首次生成完整图鉴数据
+7. #图鉴状态          验证 items、modules、gallery
+8. #扫码登录[profile] 逐个建立账号 profile
+9. #注册自动签到[profile]
+10. #启用全部游戏签到[profile]
+11. #同步角色[profile]
+12. #测试签到[profile]
+13. #生成签到计划     主人生成并检查计划
+14. #我的签到时间     验证该用户的计划条目
+```
+
+这个顺序先验证底层渲染，再准备运行环境，最后才建立账号和计划。这样出错时能准确判断是在 Node 原生依赖、Python、外部工具、图鉴数据、登录态还是调度阶段。
+
+`#初始化签到环境` 已经会检查工具链，但仍建议紧接着执行 `#初始化工具环境`：前者用于得到完整签到环境，后者用于输出独立、清晰的下载工具检查结果。
+
+完整的系统命令、clone、pnpm、`skia.node` 修复和验收步骤见：[从已有 Yunzai 安装到当前完全体](installation.md#从已有-yunzai-安装到当前完全体)。
+
 ## 基础配置
 
 全局配置样例在 `config/global.example.yaml`。用户 profile 样例在 `config/profile.example.yaml`。

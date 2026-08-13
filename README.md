@@ -14,6 +14,19 @@
 
 完整使用说明请从 [文档目录](docs/README.md) 进入。
 
+## 从已有 Yunzai 安装当前完全体
+
+如果 Yunzai/TRSS-Yunzai 已经可以正常启动，按以下顺序安装即可：
+
+1. 安装系统组件：`python3`、`python3-venv`、`ffmpeg`、`aria2`、`ca-certificates`。
+2. 在 Yunzai 根目录克隆锅巴和 Lotus；Lotus 必须带 `--recurse-submodules`。
+3. 在 Yunzai 根 `pnpm-workspace.yaml` 允许 `skia-canvas` 构建，然后执行根工作区 `pnpm install`。
+4. 验证 `skia-canvas`；若缺少 `skia.node`，运行依赖自带的官方 `prebuild.mjs download --or-compile`。
+5. 重启 Yunzai，依次发送 `#荷花状态`、`#初始化签到环境`、`#初始化工具环境`、`#全量更新图鉴`。
+6. 每个 profile 再执行扫码登录、注册自动签到、开启需要的游戏签到和测试签到。
+
+可直接复制的完整命令、容器写法、验证命令及失败处理见：[从零安装到当前完全体](docs/installation.md#从已有-yunzai-安装到当前完全体)。安装后的机器人指令顺序见：[初始化](docs/initialization.md#完全体初始化顺序)。
+
 ## 鸣谢
 
 感谢以下上游项目、依赖项目与社区项目提供的源码基础、思路及技术支持：
