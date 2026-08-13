@@ -804,7 +804,7 @@ function estimateVideoSizeMb(info = {}) {
   return Math.round((bandwidth * info.duration) / 8 / 1024 / 1024)
 }
 
-async function compressFiles(files, zipPath, spawnImpl = spawn, timeoutMs = 600000) {
+export async function compressFiles(files, zipPath, spawnImpl = spawn, timeoutMs = 600000) {
   await fs.rm(zipPath, { force: true }).catch(() => null)
   if (process.platform === "win32") {
     const escaped = files.map(file => `'${file.replace(/'/g, "''")}'`).join(",")
@@ -816,11 +816,39 @@ async function compressFiles(files, zipPath, spawnImpl = spawn, timeoutMs = 6000
     return zipPath
   }
 
-  await runSpawn("zip", ["-j", zipPath, ...files], {
-    spawnImpl,
-    timeoutMs,
-  })
+  try {
+    await runSpawn("zip", ["-j", zipPath, ...files], {
+      spawnImpl,
+      timeoutMs,
+    })
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error
+    await compressFilesWithPython(files, zipPath, spawnImpl, timeoutMs)
+  }
   return zipPath
+}
+
+async function compressFilesWithPython(files, zipPath, spawnImpl, timeoutMs) {
+  const script = [
+    "import os,sys,zipfile",
+    "z=zipfile.ZipFile(sys.argv[1],'w',zipfile.ZIP_DEFLATED)",
+    "[z.write(f,arcname=os.path.basename(f)) for f in sys.argv[2:]]",
+    "z.close()",
+  ].join(";")
+  let lastError = null
+  for (const command of ["python3", "python"]) {
+    try {
+      await runSpawn(command, ["-c", script, zipPath, ...files], {
+        spawnImpl,
+        timeoutMs,
+      })
+      return
+    } catch (error) {
+      lastError = error
+      if (error?.code !== "ENOENT") throw error
+    }
+  }
+  throw new Error(`未找到 zip，也没有可用的 Python ZIP 回退环境：${lastError?.message || "command not found"}`)
 }
 
 function resolveToolsPath(value = "") {

@@ -51,7 +51,7 @@ Debian/Ubuntu/TRSS 容器执行：
 
 ```bash
 apt-get update
-apt-get install -y --no-install-recommends   git ca-certificates python3 python3-venv ffmpeg aria2
+apt-get install -y --no-install-recommends   git ca-certificates python3 python3-venv ffmpeg aria2 zip unzip
 ```
 
 这些组件分别用于拉取源码、访问 HTTPS、创建签到 Python 环境、处理视频和下载文件。系统组件缺失时，即使插件源码存在，对应功能也会在运行阶段报找不到命令。
@@ -63,6 +63,7 @@ git --version
 python3 --version
 ffmpeg -version | head -n 1
 aria2c --version | head -n 1
+zip -v | head -n 2
 ```
 
 ### 第 2 步：克隆锅巴与荷花插件
@@ -401,7 +402,7 @@ compatibility:
 
 ```bash
 apt-get update
-apt-get install -y --no-install-recommends python3 python3-venv ffmpeg aria2 ca-certificates
+apt-get install -y --no-install-recommends python3 python3-venv ffmpeg aria2 zip unzip ca-certificates
 ```
 
 插件会优先复用通过版本命令健康检查的 `/usr/bin/ffmpeg`、`ffprobe` 和 `aria2c`；BBDown 可由插件按系统和 CPU 自动选择 Release 下载。

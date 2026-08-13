@@ -18,7 +18,7 @@
 
 如果 Yunzai/TRSS-Yunzai 已经可以正常启动，按以下顺序安装即可：
 
-1. 安装系统组件：`python3`、`python3-venv`、`ffmpeg`、`aria2`、`ca-certificates`。
+1. 安装系统组件：`python3`、`python3-venv`、`ffmpeg`、`aria2`、`zip`、`unzip`、`ca-certificates`。
 2. 在 Yunzai 根目录克隆锅巴和 Lotus；Lotus 必须带 `--recurse-submodules`。
 3. 在 Yunzai 根 `pnpm-workspace.yaml` 允许 `skia-canvas` 构建，然后执行根工作区 `pnpm install`。
 4. 验证 `skia-canvas`；若缺少 `skia.node`，运行依赖自带的官方 `prebuild.mjs download --or-compile`。
