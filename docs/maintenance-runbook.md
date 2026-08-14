@@ -160,6 +160,33 @@ docker exec trss-yunzai sh -lc '
 '
 ```
 
+#### 更新指令的持久化保护
+
+本环境维护的 TRSS-Yunzai 在 `plugins/other/update.js` 中接入
+`lib/update/workspacePolicy.js`。执行 `#更新`、`#全部更新`，包括对应的
+强制更新时，更新器会先按原流程拉取代码，然后在任何 `pnpm install` 之前把
+以下项目合并回根 `pnpm-workspace.yaml`：
+
+- `allowBuilds.skia-canvas: true`
+- `allowBuilds.protobufjs: false`
+- `onlyBuiltDependencies` 中包含 `skia-canvas`
+
+合并逻辑只补充上述项目，不删除上游今后新增的构建项。普通插件更新不会触碰
+根工作区；荷花插件仍可通过 `#荷花更新` 独立拉取新版本。保护逻辑必须保留在
+TRSS-Yunzai 的维护分支中，并让容器的 `origin` 指向该维护仓库，否则主程序
+强制更新后下一次进程加载会回到不含保护逻辑的上游文件。
+
+更新后检查：
+
+```bash
+docker exec trss-yunzai sh -lc '
+  cd /root/Yunzai
+  grep -A12 "^allowBuilds:" pnpm-workspace.yaml
+  grep -A12 "^onlyBuiltDependencies:" pnpm-workspace.yaml
+  test -f lib/update/workspacePolicy.js
+'
+```
+
 ### 2.5 首次启动
 
 ```bash
