@@ -100,7 +100,19 @@ export class ScheduledSigninService {
         delete entry.nextRetryAt
       }
       await this.scheduler.savePlan(plan)
-      results.push({ entry: { ...entry }, outcome })
+      const resultItem = { entry: { ...entry }, outcome }
+      results.push(resultItem)
+      if (typeof options.onResult === "function") {
+        try {
+          await options.onResult({
+            ...resultItem,
+            index: results.length,
+            total: profiles.length,
+          })
+        } catch (error) {
+          globalThis.logger?.warn?.(`[Lotus-Plugin] all catch-up result reply failed for ${qq}/P${profileId}: ${error.message}`)
+        }
+      }
     }
 
     plan.entries.sort((a, b) => a.time.localeCompare(b.time) || a.qq.localeCompare(b.qq) || a.profileId - b.profileId)

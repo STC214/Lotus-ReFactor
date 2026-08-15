@@ -265,6 +265,14 @@ export class LotusScheduler extends BasePlugin {
       config: globalConfig,
       date: dateString(),
       bot: globalThis.Bot,
+      onResult: async ({ entry, outcome, index, total }) => {
+        const state = outcome.ok ? "完成" : "失败"
+        const fallback = outcome.ok
+          ? `[荷花插件]全部补签 ${index}/${total}：QQ ${entry.qq} · Profile ${entry.profileId} 签到完成。`
+          : `[荷花插件]全部补签 ${index}/${total}：QQ ${entry.qq} · Profile ${entry.profileId} 签到失败：${outcome.message || outcome.error?.message || "未知错误"}`
+        await replyImage(this, outcome.image, fallback)
+        globalThis.logger?.info?.(`[Lotus-Plugin] all catch-up ${index}/${total} ${entry.qq}/P${entry.profileId}: ${state}`)
+      },
     })
     const image = await renderStatusCard({
       title: "全部补签",

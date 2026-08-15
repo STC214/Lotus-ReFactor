@@ -198,6 +198,42 @@ test("all catch-up keeps refresh failures pending and restarts the retry budget"
   assert.equal("doneAt" in entry, false)
 })
 
+test("all catch-up reports each profile result without letting reply errors stop the batch", async t => {
+  const scheduler = await fixture(t)
+  const firstProfile = profile(1)
+  const secondProfile = profile(2)
+  const reported = []
+  const service = new ScheduledSigninService({
+    scheduler,
+    signin: {
+      run: async args => ({
+        ok: true,
+        stage: "checkin",
+        source: args.source,
+        profile: args.profile,
+        message: "ok",
+        image: `image-${args.profile.profile.id}`,
+      }),
+    },
+  })
+
+  const result = await service.runAll({
+    now: new Date(2026, 7, 3, 8, 0),
+    config: { scheduler: schedulerConfig },
+    profiles: [firstProfile, secondProfile],
+    onResult: async item => {
+      reported.push({ index: item.index, total: item.total, profileId: item.entry.profileId, image: item.outcome.image })
+      if (item.index === 1) throw new Error("simulated reply failure")
+    },
+  })
+
+  assert.equal(result.count, 2)
+  assert.deepEqual(reported, [
+    { index: 1, total: 2, profileId: 1, image: "image-1" },
+    { index: 2, total: 2, profileId: 2, image: "image-2" },
+  ])
+})
+
 test("scheduled refresh failures are retryable", async t => {
   const scheduler = await fixture(t)
   const item = profile(1)
