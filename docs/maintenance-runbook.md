@@ -312,6 +312,8 @@ docker exec trss-yunzai sh -lc 'cd /root/Yunzai/plugins/Lotus-Plugin && pnpm tes
 
 所有测试必须通过；当前已验证基线为 `87 passed / 0 failed`。
 
+该数字同时在 Windows 本地项目和 TRSS-Yunzai Debian/Linux 容器中复核。与初始化稳定性直接相关的定向用例至少覆盖：全部网络不可达时零修改、关键阶段失败门禁、失败基线无半成品、并发 Hook 独立临时日志、调用方环境继承、超时进程树清理、ZIP 来源安装及回滚脚本可执行性。测试数量变化时，应同步更新项目 README、文档目录、初始化、安装和本运行手册中的基线数字。
+
 ## 3. 当前实例关键配置语义
 
 读取实际配置，不凭记忆判断：

@@ -34,7 +34,7 @@
 3. **检查锅巴插件**：缺失时克隆锅巴。已经存在的完整目录会直接复用，避免覆盖配置。
 4. **同步三个子模块**：Git clone 安装使用 `git submodule update`；检测到子组件有未提交修改时会在更新前停止，保护用户工作树。ZIP 或手动复制安装没有 `.git` 时，会从固定官方地址把缺少组件克隆到同级临时目录，关键文件验证通过后才原子改名为正式目录；网络失败会删除临时目录，下一次可以正常重试。非空但残缺的正式目录会保留现场并明确报错。
 5. **合并 pnpm 构建策略**：只补入 `skia-canvas: true`、`protobufjs: false` 和 `onlyBuiltDependencies` 中的 `skia-canvas`，保留 Yunzai 原有 `sharp`、`puppeteer`、`sqlite3` 等项目。块状及 `{}`/`[]` 行内 YAML 都会先安全展开再合并。
-6. **安装更新持久化保护**：在 Git 实际 Hook 目录中无损加入 Lotus 管理块，通过 `post-checkout` 和 `post-merge` 在更新后恢复构建许可；Hook 使用真实插件相对路径及 `git rev-parse --absolute-git-dir`，因此插件目录改名和 Git worktree 均可工作。管理块固定插入 shebang 之后、用户 Hook 正文之前，因此用户正文里的 `exit` 或 `exec` 不会绕过恢复逻辑；用户正文内容仍原样保留。即使 `.git` 是普通目录，也会查询并遵循 `core.hooksPath`；日志覆盖写入，状态单独记录，失败时显示警告。
+6. **安装更新持久化保护**：在 Git 实际 Hook 目录中无损加入 Lotus 管理块，通过 `post-checkout` 和 `post-merge` 在更新后恢复构建许可；Hook 使用真实插件相对路径及 `git rev-parse --absolute-git-dir`，因此插件目录改名和 Git worktree 均可工作。管理块固定插入 shebang 之后、用户 Hook 正文之前，因此用户正文里的 `exit` 或 `exec` 不会绕过恢复逻辑；用户正文内容仍原样保留。即使 `.git` 是普通目录，也会查询并遵循 `core.hooksPath`。并发 Hook 各自使用带 PID 的临时日志，完成后再原子替换正式日志；日志覆盖写入，状态单独记录，失败时显示警告。
 7. **安装 Node 依赖**：优先读取 Yunzai 根 `package.json` 声明的 pnpm 版本，未声明时才读取 Lotus 的版本；Windows 通过 `cmd.exe` 和临时环境变量调用 `.cmd`，继承调用方的 `PATH`、代理和自定义环境变量，并保留命令路径、参数中的空格、`&` 和 `%`；Linux/macOS 直接调用可执行文件。首次或依赖指纹变化时安装并重建 `skia-canvas`，状态未变化时跳过。
 8. **修复 skia-canvas**：先实际 `require` 验证；仍缺 `skia.node` 时动态定位当前包目录，执行依赖自带的 `prebuild.mjs download --or-compile`，不写死 pnpm 包目录版本。
 9. **基础验收**：加载 `cheerio`、`qrcode`、`skia-canvas`、`yaml` 并运行插件测试。
@@ -53,6 +53,8 @@ node scripts/initialize-lotus.mjs
 ```
 
 脚本按 JSON Lines 输出网络检测、阶段开始、阶段结束和最终结果，退出码 `0` 表示关键阶段通过，退出码 `1` 表示存在关键失败。QQ 入口只有在基础部署全部成功后才调用 Python、签到工具、背景和图鉴等运行时服务；基础部署失败时仍返回完整结果卡，但不会继续运行这些服务。
+
+当前本地和 TRSS-Yunzai 容器均已通过 **87 项测试，0 项失败**。其中包含全部网络不可达门禁、消息发送异常隔离、原子基线清理、Hook 并发临时文件、Windows 命令环境继承、超时进程树清理、ZIP 来源安装和可执行回滚等回归用例。
 
 ### 初始化后的账号操作
 
