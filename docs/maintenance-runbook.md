@@ -52,6 +52,33 @@ docker inspect -f '{{.State.Status}} {{.State.Health.Status}}' llbot
 
 以下步骤不得调换。每一步只有在验收通过后才进入下一步。
 
+### 2.0 用户侧一键入口
+
+用户已手动把源码放入 `plugins/Lotus-Plugin` 且 Yunzai 已成功加载插件时，可由主人发送 `#初始化荷花`。入口位于 `apps/initializer.js`，实际基础部署脚本为 `scripts/initialize-lotus.mjs`。
+
+脚本严格按本节顺序完成以下工作：依赖站点 HTTP Ping 与“魔法网络”提醒、可执行回滚基线、系统组件、锅巴、Git clone 或 ZIP 来源下的三个子组件及关键文件校验、根工作区构建策略、带状态记录的 Git 更新持久化 Hook、按 Yunzai 声明版本和依赖指纹执行 pnpm 安装、`skia.node` 验证与官方预构建修复、插件测试。命令入口随后调用现有服务完成 Python、MihoyoBBSTools、test_nine/模型、BBDown/ffmpeg/aria2、本地背景和完整图鉴。任一基础关键阶段失败时必须立刻停止后续修改，并跳过 Python、签到工具、背景和图鉴运行时服务；最终结果卡仍需明确显示已执行阶段和失败原因。基础阶段全部成功时，结果卡必须保留全部阶段，不得截断末尾的工具、背景和图鉴结果。该 QQ 指令直接校验 bot 主人身份，不复用可下放的工具安装权限。
+
+维护时注意三个边界：
+
+1. 插件源码不存在或尚未加载时，机器人没有该命令，所以首次 clone 仍由用户完成。
+2. Profile 登录态、设备信息和 Cookie 不跨账号复制，初始化结果卡会列出后续逐账号指令。
+3. 新装锅巴或修改工作区后不会在结果返回前强制结束当前 Yunzai 进程；结果卡会提示用户执行 `#重启`。
+
+命令与独立脚本使用相同逻辑。无机器人环境可执行：
+
+```bash
+cd /root/Yunzai/plugins/Lotus-Plugin
+node scripts/initialize-lotus.mjs
+```
+
+输出是 JSON Lines，适合保存为部署记录。全部依赖站点均不可达时，脚本在保存基线及任何修改前停止；单个站点失败不阻止其他来源继续。基线使用临时目录完整写入后再原子改名，失败时清除半成品。QQ 进度消息发送失败只记警告，不会中断初始化状态机。QQ 入口与独立脚本共用带 PID、心跳、guard 和所有权 token 的跨进程锁，死亡锁接管不会并行穿透；超时命令会按 Linux/macOS 进程组或 Windows 进程树清理，首进程提前退出时仍会强制清理同组子进程。Windows 的 `.cmd` 通过环境变量传参，继承调用方的 PATH、代理及自定义环境，兼容带空格及 CMD 特殊字符的路径和参数。ZIP 子组件先克隆到临时目录、校验后再原子替换。Hook 和状态文件位置始终通过 Git 查询，普通 `.git` 目录也遵循 `core.hooksPath`，同时兼容 Git worktree 和自定义 Lotus 插件目录；Lotus 管理块位于 shebang 后、用户正文前，正文里的 `exit`/`exec` 不会跳过它。并发 Hook 使用各自 PID 命名的临时日志，再原子替换正式日志；日志每次覆盖，不会无限增长。
+
+只需重新安装或升级持久化 Hook 而不运行完整初始化时执行：
+
+```bash
+node scripts/initialize-lotus.mjs --update-persistence-only
+```
+
 ### 2.1 保存基线
 
 ```bash
@@ -283,7 +310,7 @@ docker exec trss-yunzai sh -lc '
 docker exec trss-yunzai sh -lc 'cd /root/Yunzai/plugins/Lotus-Plugin && pnpm test'
 ```
 
-所有测试必须通过；当前已验证基线为 `59 passed / 0 failed`。
+所有测试必须通过；当前已验证基线为 `87 passed / 0 failed`。
 
 ## 3. 当前实例关键配置语义
 

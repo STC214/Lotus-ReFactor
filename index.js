@@ -4,11 +4,18 @@ import { ensureGlobalConfig } from "./core/config/global.js"
 import { autoStartTestNineServer } from "./services/testNine/server.js"
 import { syncTrackedSubmodules } from "./services/pluginUpdate/service.js"
 import { ensureBackgroundPool } from "./core/render/background.js"
+import { applyWorkspacePolicy } from "./scripts/initialize-lotus.mjs"
 
 const pluginName = "Lotus-Plugin"
 const appsDir = new URL("./apps/", import.meta.url)
 
 logger?.info?.("---- Lotus-Plugin refactor loading ----")
+
+await applyWorkspacePolicy().then(result => {
+  if (result.changed) logger?.mark?.(`[${pluginName}] restored pnpm workspace build policy`)
+}).catch(error => {
+  logger?.warn?.(`[${pluginName}] workspace build policy restore skipped: ${error.message}`)
+})
 
 await ensureGlobalConfig().then(result => {
   if (result.created) logger?.mark?.(`[${pluginName}] created default config: ${result.file}`)

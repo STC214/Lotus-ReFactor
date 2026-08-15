@@ -33,6 +33,18 @@ Debian 等发行版可能移除 Python 自带的 `ensurepip`。插件会先尝�
 
 ## 从已有 Yunzai 安装到当前完全体
 
+### 手动放入源码后的一键初始化
+
+若已经把仓库放入 `Yunzai/plugins/Lotus-Plugin` 并重启使插件成功加载，bot 主人可发送：
+
+```text
+#初始化荷花
+```
+
+它会把本章第 1～8 步中可由运行中插件完成的工作自动化：先测试所有依赖站点 HTTP Ping 并提醒检查“魔法网络”，然后生成带 `rollback.mjs` 的完整基线、补齐系统组件、安装锅巴、按 Git clone 或 ZIP/手动复制来源补齐三个子组件、读取项目声明选择 pnpm、无损合并构建白名单、安装并验证 Node/skia-canvas、初始化 Python/test_nine/工具链、背景池和完整图鉴，最后运行测试并返回分阶段结果。该命令始终直接校验 bot 主人身份，不受可委派的工具安装权限影响。
+
+源码首次 clone 和使插件首次加载仍是前置动作；每个账号的扫码登录、设备绑定与 Cookie 配置仍需本人逐个完成。完整阶段解释、重跑规则和独立脚本入口见：[一键完整初始化](initialization.md#一键完整初始化)。
+
 下面假设 Yunzai 已经安装完成并能启动，Yunzai 根目录为 `/root/Yunzai`。Docker 用户应在 Yunzai 容器内执行这些命令；宿主机先进入容器：
 
 ```bash

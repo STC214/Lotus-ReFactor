@@ -18,6 +18,14 @@
 
 ## 从已有 Yunzai 安装当前完全体
 
+已经把 Lotus 源码放入 `plugins/Lotus-Plugin` 并至少成功加载一次后，bot 主人可直接发送：
+
+```text
+#初始化荷花
+```
+
+该主人专用指令会先显示 GitHub、Gitee、PyPI、Python Files 和 npm 等依赖站点的 HTTP Ping，并提醒检查“魔法网络”，随后自动执行运行手册中的可回滚基线备份、系统组件检查、锅巴安装、Git/ZIP 两种来源的子组件补齐、pnpm 版本自适应、构建策略持久化、Node 原生依赖修复、Python/验证码/下载工具/背景池/图鉴初始化和测试验收。账号扫码登录及设备绑定涉及每个账号各自的登录态，仍在初始化完成后按结果卡提示逐个执行。详细说明见[一键完整初始化](docs/initialization.md#一键完整初始化)。
+
 如果 Yunzai/TRSS-Yunzai 已经可以正常启动，按以下顺序安装即可：
 
 1. 安装系统组件：`python3`、`python3-venv`、`ffmpeg`、`aria2`、`zip`、`unzip`、`ca-certificates`。
