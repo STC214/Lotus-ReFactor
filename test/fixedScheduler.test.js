@@ -131,6 +131,90 @@ test("due scanning never creates a missing plan", async t => {
   assert.equal(await scheduler.getPlan("2026-08-03"), null)
 })
 
+test("all catch-up runs every enabled profile regardless of existing done state", async t => {
+  const scheduler = await fixture(t)
+  const firstProfile = profile(1)
+  const secondProfile = profile(2)
+  const disabledProfile = profile(3, { enabled: false })
+  const plan = scheduler.generatePlan({
+    date: "2026-08-03",
+    config: schedulerConfig,
+    profiles: [firstProfile, secondProfile],
+  })
+  plan.entries[0].done = true
+  plan.entries[0].ok = false
+  plan.entries[0].stage = "refresh"
+  await scheduler.savePlan(plan)
+
+  const calls = []
+  const service = new ScheduledSigninService({
+    scheduler,
+    signin: {
+      run: async args => {
+        calls.push(args)
+        return { ok: true, stage: "checkin", source: args.source, profile: args.profile, message: "ok" }
+      },
+    },
+  })
+  const result = await service.runAll({
+    now: new Date(2026, 7, 3, 8, 0),
+    config: { scheduler: schedulerConfig },
+    profiles: [firstProfile, secondProfile, disabledProfile],
+  })
+
+  assert.equal(result.count, 2)
+  assert.equal(result.success, 2)
+  assert.equal(result.failed, 0)
+  assert.equal(result.skipped, 1)
+  assert.equal(calls.length, 2)
+  assert.equal(calls.every(item => item.source === "catch_up_all"), true)
+  const stored = await scheduler.getPlan("2026-08-03")
+  assert.equal(stored.entries.every(item => item.done && item.ok), true)
+  assert.equal(stored.entries.every(item => item.manualCatchUpAt), true)
+})
+
+test("all catch-up keeps refresh failures pending and restarts the retry budget", async t => {
+  const scheduler = await fixture(t)
+  const item = profile(1)
+  const plan = scheduler.generatePlan({ date: "2026-08-03", config: schedulerConfig, profiles: [item] })
+  plan.entries[0].done = true
+  plan.entries[0].attempts = 3
+  await scheduler.savePlan(plan)
+  const service = new ScheduledSigninService({
+    scheduler,
+    signin: { run: async args => ({ ok: false, stage: "refresh", source: args.source, profile: item, message: "fetch failed" }) },
+  })
+
+  const result = await service.runAll({
+    now: new Date(2026, 7, 3, 8, 0),
+    config: { scheduler: schedulerConfig },
+    profiles: [item],
+  })
+  const entry = result.results[0].entry
+  assert.equal(entry.done, false)
+  assert.equal(entry.attemptsBeforeManualCatchUp, 3)
+  assert.equal(entry.attempts, 1)
+  assert.equal(entry.nextRetryAt.includes("08:15:00"), true)
+  assert.equal("doneAt" in entry, false)
+})
+
+test("scheduled refresh failures are retryable", async t => {
+  const scheduler = await fixture(t)
+  const item = profile(1)
+  await scheduler.savePlan(scheduler.generatePlan({ date: "2026-08-03", config: schedulerConfig, profiles: [item] }))
+  const service = new ScheduledSigninService({
+    scheduler,
+    signin: { run: async () => ({ ok: false, stage: "refresh", profile: item, message: "fetch failed" }) },
+  })
+  const result = await service.runDue({
+    now: new Date(2026, 7, 3, 4, 30),
+    config: { scheduler: schedulerConfig },
+    notify: false,
+  })
+  assert.equal(result.results[0].entry.done, false)
+  assert.equal(result.results[0].entry.nextRetryAt.includes("04:45:00"), true)
+})
+
 test("retryable failures use 15/60 minute backoff and persist each transition", async t => {
   const scheduler = await fixture(t)
   await scheduler.savePlan(scheduler.generatePlan({ date: "2026-08-03", config: schedulerConfig, profiles: [profile()] }))

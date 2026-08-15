@@ -24,6 +24,7 @@ export class LotusScheduler extends BasePlugin {
         { reg: "^#生成签到计划$", fnc: "generatePlan" },
         { reg: "^#我的签到时间$", fnc: "myPlan" },
         { reg: "^#执行到期签到$", fnc: "runDueCommand" },
+        { reg: "^#全部补签$", fnc: "runAllCatchUpCommand" },
         { reg: "^#签到(随机|固定)模式(\\s+\\d{1,2}:\\d{2})?$", fnc: "updateSchedulerSettings" },
         { reg: "^#签到计划生成\\s+\\d{1,2}:\\d{2}$", fnc: "updateSchedulerSettings" },
       ],
@@ -246,6 +247,47 @@ export class LotusScheduler extends BasePlugin {
       saveId: `lotus-run-due-${this.e.user_id || "master"}`,
     })
     await replyImage(this, image, "[荷花插件]到期签到检查完成。")
+    return true
+  }
+
+  async runAllCatchUpCommand() {
+    const globalConfig = await loadGlobalConfig()
+    const permission = new PermissionService({ permissions: globalConfig.permissions })
+      .explain(this.e, "scheduler.run_due")
+    if (!permission.ok) {
+      await replyText(this, "[荷花插件]只有 bot 主人可以执行全部补签。")
+      return true
+    }
+
+    await replyText(this, "[荷花插件]正在为所有已启用的 Profile 检查并补签，请稍候。")
+    const scheduler = new SchedulerService({ config: globalConfig.scheduler })
+    const result = await new ScheduledSigninService({ scheduler }).runAll({
+      config: globalConfig,
+      date: dateString(),
+      bot: globalThis.Bot,
+    })
+    const image = await renderStatusCard({
+      title: "全部补签",
+      subtitle: result.date,
+      badge: `${result.success}/${result.count}`,
+      message: result.count
+        ? `已检查 ${result.count} 个启用的 Profile：成功 ${result.success} 个，失败 ${result.failed} 个。已同步更新今日签到计划。`
+        : "当前没有已启用的 Profile。",
+      userId: this.e.user_id,
+      items: [
+        ...result.results.slice(0, 12).map(({ entry, outcome }) => ({
+          label: `QQ ${entry.qq} · P${entry.profileId}`,
+          value: `${outcome.ok ? "成功" : entry.nextRetryAt ? "失败·待重试" : "失败"} · ${outcome.stage || "checkin"}`,
+        })),
+        ...(result.results.length > 12 ? [{
+          label: "更多",
+          value: `另有 ${result.results.length - 12} 个 Profile，完整结果已写入签到审计和今日计划。`,
+        }] : []),
+      ],
+    }, {
+      saveId: `lotus-catch-up-all-${this.e.user_id || "master"}`,
+    })
+    await replyImage(this, image, `[荷花插件]全部补签完成：成功 ${result.success}，失败 ${result.failed}。`)
     return true
   }
 

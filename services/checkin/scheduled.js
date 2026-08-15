@@ -1,6 +1,6 @@
 import { loadGlobalConfig } from "../../core/config/global.js"
 import { createCaptchaEventReporter } from "../../core/captcha/notify.js"
-import { loadProfile } from "../../core/config/profile.js"
+import { listAllProfiles, loadProfile } from "../../core/config/profile.js"
 import { renderTemplate } from "../../core/render/service.js"
 import { SchedulerService, dateString, nextDateString, normalizeSchedulerConfig, planDateForGeneration } from "../../core/scheduler/service.js"
 import { formatLocalIso } from "../../core/time.js"
@@ -25,6 +25,96 @@ export class ScheduledSigninService {
     const now = options.now || this.now()
     const planDate = options.date || dateString(now)
     return runScheduleTask(`run-due:${planDate}`, () => runPlanTask(planDate, () => this.runDuePlan(planDate, now, options)))
+  }
+
+  async runAll(options = {}) {
+    const now = options.now || this.now()
+    const planDate = options.date || dateString(now)
+    return runScheduleTask(`run-all:${planDate}`, () => runPlanTask(planDate, () => this.runAllProfiles(planDate, now, options)))
+  }
+
+  async runAllProfiles(planDate, now, options = {}) {
+    const config = options.config || await loadGlobalConfig()
+    const schedulerConfig = normalizeSchedulerConfig(config.scheduler || this.scheduler.config || {})
+    const suppliedProfiles = options.profiles || await listAllProfiles()
+    const profiles = suppliedProfiles.filter(profile => profile?.enabled === true)
+    let plan = await this.scheduler.getPlan(planDate)
+    const createdPlan = !plan
+    if (!plan) plan = await this.scheduler.getOrCreatePlan(planDate, { profiles })
+
+    const results = []
+    for (const profile of profiles) {
+      const qq = String(profile.user?.qq || "")
+      const profileId = Number(profile.profile?.id || 1)
+      let entry = plan.entries.find(item => item.qq === qq && Number(item.profileId) === profileId)
+      if (!entry) {
+        entry = {
+          qq,
+          profileId,
+          name: profile.profile?.name || "",
+          time: formatPlanMinute(now),
+          mode: "catch_up",
+          notified: true,
+          done: false,
+        }
+        plan.entries.push(entry)
+      }
+
+      const startedAt = options.now || this.now()
+      entry.attemptsBeforeManualCatchUp = Number(entry.attempts || 0)
+      entry.attempts = 1
+      entry.runningAt = formatLocalIso(startedAt)
+      entry.lastAttemptAt = entry.runningAt
+      delete entry.nextRetryAt
+      await this.scheduler.savePlan(plan)
+
+      const outcome = await this.runEntry(entry, {
+        ...options,
+        notify: false,
+        source: "catch_up_all",
+        profile,
+        timeoutMs: Number(config.scheduler?.entry_timeout_minutes || 20) * 60 * 1000,
+      })
+      entry.ok = outcome.ok
+      entry.stage = outcome.stage
+      entry.message = outcome.message || outcome.error?.message || ""
+      const completedAt = options.now || this.now()
+      entry.manualCatchUpAt = formatLocalIso(completedAt)
+      delete entry.runningAt
+      delete entry.notificationRetryAt
+      delete entry.notificationExhaustedAt
+      delete entry.resultNotified
+      const retryDelay = !outcome.ok && isRetryableOutcome(outcome)
+        ? schedulerConfig.failure_retry_minutes[0]
+        : undefined
+      const retryAt = Number.isFinite(retryDelay)
+        ? new Date(completedAt.getTime() + retryDelay * 60 * 1000)
+        : null
+      if (retryAt && dateString(retryAt) === planDate) {
+        entry.done = false
+        entry.nextRetryAt = formatLocalIso(retryAt)
+        delete entry.doneAt
+      } else {
+        entry.done = true
+        entry.doneAt = entry.manualCatchUpAt
+        delete entry.nextRetryAt
+      }
+      await this.scheduler.savePlan(plan)
+      results.push({ entry: { ...entry }, outcome })
+    }
+
+    plan.entries.sort((a, b) => a.time.localeCompare(b.time) || a.qq.localeCompare(b.qq) || a.profileId - b.profileId)
+    await this.scheduler.savePlan(plan)
+    return {
+      ok: results.every(item => item.outcome.ok),
+      date: planDate,
+      count: results.length,
+      success: results.filter(item => item.outcome.ok).length,
+      failed: results.filter(item => !item.outcome.ok).length,
+      skipped: suppliedProfiles.length - profiles.length,
+      results,
+      createdPlan,
+    }
   }
 
   async runDuePlan(planDate, now, options = {}) {
@@ -224,7 +314,7 @@ export class ScheduledSigninService {
   }
 
   async runEntry(entry, options = {}) {
-    let profile = await this.loadProfile(entry.qq, entry.profileId).catch(() => null)
+    let profile = options.profile || await this.loadProfile(entry.qq, entry.profileId).catch(() => null)
     try {
       const captchaReporter = createCaptchaEventReporter({
         send: async message => {
@@ -243,7 +333,7 @@ export class ScheduledSigninService {
         profileId: entry.profileId,
         profile,
         refresh: true,
-        source: "scheduled",
+        source: options.source || "scheduled",
         timeoutMs: options.timeoutMs,
         installRequirements: false,
         onCaptchaEvent: async event => {
@@ -336,7 +426,7 @@ function recoverStaleRunningEntries(plan, now, timeoutMinutes) {
 }
 
 function isRetryableOutcome(outcome = {}) {
-  return ["checkin", "runner", "schedule", "timeout"].includes(outcome.stage)
+  return ["refresh", "checkin", "runner", "schedule", "timeout"].includes(outcome.stage)
 }
 
 function updateResultNotificationState(entry, outcome, now, schedulerConfig, options = {}) {
@@ -372,6 +462,10 @@ function timeToMinute(value = "00:00") {
   const match = String(value).match(/^(\d{1,2}):(\d{2})$/)
   if (!match) return Number.POSITIVE_INFINITY
   return Number(match[1]) * 60 + Number(match[2])
+}
+
+function formatPlanMinute(date = new Date()) {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`
 }
 
 async function runScheduleTask(key, task) {
