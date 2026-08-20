@@ -473,6 +473,36 @@ docker exec trss-yunzai sha256sum '/root/Yunzai/plugins/Lotus-Plugin/data/bilibi
 docker exec llbot        sha256sum '/root/Yunzai/plugins/Lotus-Plugin/data/bilibili/downloads/目标文件'
 ```
 
+### 4.9.1 B站大视频直发失败：调整“发送大小限制”
+
+锅巴路径：`插件管理 → 荷花插件 → B站解析 → 发送大小限制`。当前部署建议填写 `45`，单位为 MB，对应后端字段：
+
+```yaml
+bilibili:
+  download:
+    video_size_limit_mb: 45
+```
+
+这个值不是下载大小上限，而是**视频消息直发与普通文件发送的分界线**：
+
+- 视频文件不大于 45 MB 时，插件优先按 QQ 视频消息发送。
+- 视频文件大于 45 MB 时，插件改用群文件或好友文件发送，避开 LLBot 大视频直传过程中可能出现的 Highway 分片上传失败。
+- 它不会压缩视频，也不会阻止 BBDown 下载；下载前的大小限制由 `bilibili.download.max_estimated_size_mb` 单独控制。
+
+在锅巴修改后点击“保存”。该值写入 `/root/Yunzai/plugins/Lotus-Plugin/config/global.yaml`；当前 `/root/Yunzai` 来自宿主机持久化挂载，所以容器重启后仍然有效。插件更新通常不会覆盖 `config/global.yaml`，但重装或手工覆盖插件目录前仍应备份该文件。
+
+保存后可重启并验证实际加载值：
+
+```bash
+docker restart trss-yunzai
+docker exec trss-yunzai sh -lc '
+  cd /root/Yunzai/plugins/Lotus-Plugin
+  node --input-type=module -e "import { loadGlobalConfig } from \"./core/config/global.js\"; console.log((await loadGlobalConfig()).bilibili.download.video_size_limit_mb)"
+'
+```
+
+预期输出为 `45`。若超过 45 MB 的文件仍按视频消息直发，检查锅巴是否保存成功、是否改到了当前容器实际使用的配置文件，以及插件启动日志是否正常。
+
 ### 4.10 `#荷花帮助` 无响应或命令挤在一起
 
 检查插件是否加载、Skia 是否正常、帮助文档解析是否成功。帮助卡应使用本地文档生成，每条命令单独一行，并链接当前维护仓库的 `docs/commands.md`。运行：
