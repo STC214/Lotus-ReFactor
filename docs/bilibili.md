@@ -61,6 +61,19 @@ B 站下载只走 BBDown。ffmpeg 和 aria2 作为工具链自动准备；ffmpeg
 
 如果 LLBot 与 Yunzai 分别运行在两个容器中，还必须将 `data/bilibili/downloads` 以相同的绝对路径只读挂载到 LLBot。否则 BBDown 和 ZIP 即使已经成功，LLBot 在发送视频或压缩包时仍会报告“路径不存在”。完整 Compose 示例见[安装与升级](installation.md#llbot-与-yunzai-分容器时发送设备-apk-和-b站文件)。
 
+### 视频发送大小与 LLBot 版本
+
+锅巴“发送大小限制”对应 `bilibili.download.video_size_limit_mb`，当前建议保持 `45 MB`：不大于该值的视频优先按 QQ 视频消息发送，大于该值的文件改用群文件或好友文件发送。这个值只决定发送形式，不限制下载，也不会压缩视频；两种发送形式底层都可能使用 Highway。
+
+当前验证基线为 `linyuchen/llbot:8.1.8`。旧版 `8.1.0` 曾对已经完整下载的 73.54 MiB 视频在 `upload_group_file` 阶段返回：
+
+```text
+[Highway] httpUpload Error uploading block at offset 63963136:
+HTTP Upload failed with code 102902
+```
+
+升级到 `8.1.8` 后，同类大视频重新发送成功。因此遇到信息卡正常、文件已生成但用户没有收到视频时，应先检查 LLBot 版本和发送日志，不要把它误判为B站解析或 BBDown 下载失败。完整升级、验收、排查和回滚见 [LLBot 部署、升级与大文件发送](llbot.md)。
+
 下载会先进入独立临时目录，完成后再按 BBDown 输出和清洗后的标题选择最终文件。标题中带特殊符号时不会用原始标题做唯一精确匹配，会优先读取 BBDown 产物和可播放媒体文件，避免下载成功但找不到成品。
 
 如果工具压缩包下载损坏、解压后缺少可执行文件，或旧目录里残留了不完整的 shared 包，插件会删除损坏目录并重新下载，用户不需要手动进入 `data/tools` 清理。

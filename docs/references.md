@@ -28,6 +28,7 @@
 - [TimeRainStarSky/Yunzai](https://github.com/TimeRainStarSky/Yunzai)
 - [yoimiya-kokomi/miao-plugin](https://github.com/yoimiya-kokomi/miao-plugin)
 - [guoba-yunzai/guoba-plugin](https://github.com/guoba-yunzai/guoba-plugin)
+- [LLOneBot/LuckyLilliaBot](https://github.com/LLOneBot/LuckyLilliaBot)
 
 ## 文档引用入口
 

@@ -11,6 +11,7 @@
 - 本机源码：`F:\Project\03_Game_Tools\Yunzai_Lotus\Lotus-ReFactor`
 - Yunzai 容器名：`trss-yunzai`
 - LLBot 容器名：`llbot`
+- LLBot 当前验证镜像：`linyuchen/llbot:8.1.8`
 - 容器内 Yunzai 根目录：`/root/Yunzai`
 - 容器内插件目录：`/root/Yunzai/plugins/Lotus-Plugin`
 - 宿主机持久化插件目录：`/mnt/sda4/TRSS-Yunzai/yunzai/plugins/Lotus-Plugin`
@@ -473,7 +474,7 @@ docker exec trss-yunzai sha256sum '/root/Yunzai/plugins/Lotus-Plugin/data/bilibi
 docker exec llbot        sha256sum '/root/Yunzai/plugins/Lotus-Plugin/data/bilibili/downloads/目标文件'
 ```
 
-### 4.9.1 B站大视频直发失败：调整“发送大小限制”
+### 4.9.1 B站大视频发送失败：`Highway 102902`
 
 锅巴路径：`插件管理 → 荷花插件 → B站解析 → 发送大小限制`。当前部署建议填写 `45`，单位为 MB，对应后端字段：
 
@@ -486,8 +487,9 @@ bilibili:
 这个值不是下载大小上限，而是**视频消息直发与普通文件发送的分界线**：
 
 - 视频文件不大于 45 MB 时，插件优先按 QQ 视频消息发送。
-- 视频文件大于 45 MB 时，插件改用群文件或好友文件发送，避开 LLBot 大视频直传过程中可能出现的 Highway 分片上传失败。
+- 视频文件大于 45 MB 时，插件改用群文件或好友文件发送。
 - 它不会压缩视频，也不会阻止 BBDown 下载；下载前的大小限制由 `bilibili.download.max_estimated_size_mb` 单独控制。
+- 视频消息和群文件底层都可能使用 Highway，因此 `45 MB` 只能改变发送形式，不能作为 Highway 故障修复。
 
 在锅巴修改后点击“保存”。该值写入 `/root/Yunzai/plugins/Lotus-Plugin/config/global.yaml`；当前 `/root/Yunzai` 来自宿主机持久化挂载，所以容器重启后仍然有效。插件更新通常不会覆盖 `config/global.yaml`，但重装或手工覆盖插件目录前仍应备份该文件。
 
@@ -502,6 +504,18 @@ docker exec trss-yunzai sh -lc '
 ```
 
 预期输出为 `45`。若超过 45 MB 的文件仍按视频消息直发，检查锅巴是否保存成功、是否改到了当前容器实际使用的配置文件，以及插件启动日志是否正常。
+
+当前已验证的真实故障链为：旧版 `linyuchen/llbot:8.1.0` 接收 73.54 MiB 完整视频后，在 `upload_group_file` 的 61 MiB 偏移处返回 `HTTP Upload failed with code 102902`；Yunzai 与 LLBot 内文件大小和 SHA-256 一致，证明解析、下载、文件和挂载均正常。升级至 `linyuchen/llbot:8.1.8` 后，实际重新发送成功。
+
+处理顺序：
+
+1. 对比两个容器内目标文件大小和 SHA-256。
+2. 查看 LLBot 镜像版本；低于当前验证基线时先备份 Compose 与 `llbot_config`。
+3. 拉取 `linyuchen/llbot:8.1.8`，更新 Compose 并使用 `docker compose up -d --force-recreate llbot` 重建。
+4. 验证容器健康、保存会话恢复、QQ 在线注册、反向 WebSocket 连接以及 Yunzai 显示 `LLOneBot v8.1.8 已连接`。
+5. 必须用原失败文件复测；不要只用一个小视频宣布问题解决。
+
+完整命令和回滚见 [LLBot 部署、升级与大文件发送](llbot.md)。
 
 ### 4.10 `#荷花帮助` 无响应或命令挤在一起
 
@@ -611,6 +625,14 @@ docker restart trss-yunzai
 /mnt/sda4/LLBot/rollback-lotus-download-mount.sh --execute
 ```
 
+当前 LLBot 版本升级验证备份：
+
+```text
+/mnt/sda4/LLBot/backups/upgrade-8.1.0-to-8.1.8-20260824-154154
+```
+
+该代次包含升级前 Compose、完整 `llbot_config`、修改后 Compose、补丁、验证记录和已实测的 `rollback.sh`。一般化升级与回滚步骤见 [LLBot 专题](llbot.md)。
+
 ### 7.3 Yunzai 根工作区
 
 `pnpm-workspace.yaml` 修改前应有单独备份。恢复时只恢复该文件，再执行 `pnpm install`；不要删除整个 `node_modules` 作为第一反应。
@@ -628,6 +650,7 @@ docker restart trss-yunzai
 - 自动计划日期正确，到期扫描能执行已有任务。
 - 本地背景池可用，失败时能保留上一代。
 - 单P视频、多分P ZIP、设备 APK 的跨容器路径均可被 LLBot读取。
+- LLBot 使用当前验证基线 `8.1.8`，保存会话、QQ 在线和 OneBot 反向连接正常；大视频复测不再出现原 `Highway 102902`。
 - `#荷花状态`、`#荷花帮助`、`#登录列表`、`#签到名单列表` 有正常反馈。
 - `pnpm test` 全部通过，容器健康，启动日志无新的 Lotus 致命错误。
 - 本地源码与容器修改文件哈希一致，并存在补丁、验证记录和可运行回滚。

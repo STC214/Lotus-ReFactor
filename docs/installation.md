@@ -434,6 +434,7 @@ apt-get install -y --no-install-recommends python3 python3-venv ffmpeg aria2 zip
 ```yaml
 services:
   llbot:
+    image: linyuchen/llbot:8.1.8
     volumes:
       - /宿主机/TRSS-Yunzai/yunzai/plugins/Lotus-Plugin/resources/apk:/root/Yunzai/plugins/Lotus-Plugin/resources/apk:ro
       - /宿主机/TRSS-Yunzai/yunzai/plugins/Lotus-Plugin/data/bilibili/downloads:/root/Yunzai/plugins/Lotus-Plugin/data/bilibili/downloads:ro
@@ -451,3 +452,5 @@ docker exec trss-yunzai ls -ld /root/Yunzai/plugins/Lotus-Plugin/data/bilibili/d
 ```
 
 两边文件均存在且同一文件的 SHA-256 一致后，重新私聊发送 `#绑定设备4` 或重新解析B站链接。只读挂载不会允许 LLBot 修改插件资源和下载结果。
+
+当前验证的 LLBot 基线为 `8.1.8`。如果旧版 LLBot 在大视频发送阶段出现 `Highway 102902`，即使两边文件大小和 SHA-256 一致，也应先备份 `/app/llbot/data` 的宿主机持久化目录并升级 LLBot；不要反复重装荷花或重新下载同一个视频。详细命令见 [LLBot 部署、升级与大文件发送](llbot.md)。

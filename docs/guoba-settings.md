@@ -951,8 +951,8 @@
 - 控件：InputNumber
 - 用途：单位 MB；决定视频采用“QQ 视频消息直发”还是“群文件/好友文件发送”。
 - 操作：当前部署建议填写 `45` 并保存。视频文件不大于 45 MB 时优先作为视频消息发送；大于 45 MB 时改走文件发送。必要时重启 Yunzai，并检查启动日志。
-- Q：该设置用于避开 LLBot 发送较大视频时可能发生的 Highway 分片上传失败。它不会压缩视频、不会禁止下载，也不是下载前的预估大小限制；下载限制由 `bilibili.download.max_estimated_size_mb` 控制。配置保存在 `config/global.yaml`，使用持久化挂载时容器重启后仍然生效。
-- 验证：在插件目录加载全局配置，确认 `bilibili.download.video_size_limit_mb` 输出为 `45`。完整命令及故障排查见 [维护运行手册 4.9.1](maintenance-runbook.md#491-b站大视频直发失败调整发送大小限制)。
+- Q：该设置只改变发送形式。视频消息和群文件都可能使用 LLBot/QQ Highway，因此它不是 Highway 故障修复开关。它不会压缩视频、不会禁止下载，也不是下载前的预估大小限制；下载限制由 `bilibili.download.max_estimated_size_mb` 控制。配置保存在 `config/global.yaml`，使用持久化挂载时容器重启后仍然生效。
+- 验证：在插件目录加载全局配置，确认 `bilibili.download.video_size_limit_mb` 输出为 `45`。出现 `Highway 102902` 时检查 LLBot 是否达到当前验证基线 `8.1.8`；完整流程见 [维护运行手册 4.9.1](maintenance-runbook.md#491-b站大视频发送失败highway-102902)和 [LLBot 专题](llbot.md)。
 
 ### 预估大小限制（bilibili.download.max_estimated_size_mb）
 

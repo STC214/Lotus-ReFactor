@@ -16,6 +16,8 @@
 
 后续由自动化维护代理接手安装、Docker 部署或历史故障排查时，先阅读[安装与故障处置运行手册](docs/maintenance-runbook.md)。
 
+分容器部署当前验证的媒体发送基线为 **LLBot 8.1.8**（镜像 `linyuchen/llbot:8.1.8`）。旧版 `8.1.0` 曾在较大视频上传时返回 `Highway 102902`；升级、挂载、验收和回滚流程见 [LLBot 部署与大文件发送](docs/llbot.md)。
+
 ## 从已有 Yunzai 安装当前完全体
 
 已经把 Lotus 源码放入 `plugins/Lotus-Plugin` 并至少成功加载一次后，bot 主人可直接发送：
@@ -62,6 +64,7 @@
 - [TimeRainStarSky/Yunzai](https://github.com/TimeRainStarSky/Yunzai)
 - [yoimiya-kokomi/miao-plugin](https://github.com/yoimiya-kokomi/miao-plugin)
 - [guoba-yunzai/guoba-plugin](https://github.com/guoba-yunzai/guoba-plugin)
+- [LLOneBot/LuckyLilliaBot](https://github.com/LLOneBot/LuckyLilliaBot)
 
 敏感数据只允许写入 `data/` 或用户本地配置，不要提交 cookie、stoken、mid、打码平台 key、OTP secret 或远程 spawn 输出。
 
