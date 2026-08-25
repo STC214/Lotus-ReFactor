@@ -45,7 +45,7 @@ Debian 等发行版可能移除 Python 自带的 `ensurepip`。插件会先尝�
 
 源码首次 clone 和使插件首次加载仍是前置动作；每个账号的扫码登录、设备绑定与 Cookie 配置仍需本人逐个完成。完整阶段解释、重跑规则和独立脚本入口见：[一键完整初始化](initialization.md#一键完整初始化)。
 
-当前 Windows 本地环境和 TRSS-Yunzai Debian/Linux 容器的完整回归结果均为 **87 passed / 0 failed**。更新后建议按本章验证命令复查依赖，并按[运行手册](maintenance-runbook.md)检查 Hook 状态和容器加载记录。
+当前 TRSS-Yunzai Debian/Linux 容器的完整回归结果为 **91 passed / 0 failed**。Windows 本地若没有 `node_modules`，完整测试会因 `yaml` 等依赖缺失停止；当次攻略与帮助定向测试为 **7 passed / 0 failed**。更新后建议按本章验证命令复查依赖，并按[运行手册](maintenance-runbook.md)检查 Hook 状态和容器加载记录。
 
 下面假设 Yunzai 已经安装完成并能启动，Yunzai 根目录为 `/root/Yunzai`。Docker 用户应在 Yunzai 容器内执行这些命令；宿主机先进入容器：
 
