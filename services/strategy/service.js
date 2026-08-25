@@ -23,6 +23,8 @@ const DEFAULT_CACHE = fileURLToPath(new URL("../../data/strategy-authors/cache.j
 const API = "https://bbs-api.mihoyo.com/post/wapi/userPost"
 const DEFAULT_MAX_PAGES = 12
 const DEFAULT_PAGE_SIZE = 50
+const DEFAULT_TTL_MS = 12 * 60 * 60 * 1000
+const DEFAULT_REFRESH_CONCURRENCY = 3
 const CACHE_VERSION = 2
 
 export class StrategySourceService {
@@ -31,8 +33,13 @@ export class StrategySourceService {
     this.cacheFile = options.cacheFile || DEFAULT_CACHE
     this.maxPages = positiveInt(options.maxPages, DEFAULT_MAX_PAGES)
     this.pageSize = positiveInt(options.pageSize, DEFAULT_PAGE_SIZE)
+    this.ttlMs = positiveInt(options.ttlMs, DEFAULT_TTL_MS)
+    this.refreshConcurrency = positiveInt(options.refreshConcurrency, DEFAULT_REFRESH_CONCURRENCY)
     this.now = options.now || Date.now
     this.refreshQueue = Promise.resolve()
+    this.cacheMemory = null
+    this.cacheMtimeMs = null
+    this.lastBackgroundRefresh = null
   }
 
   async query(game, role, options = {}) {
@@ -40,14 +47,26 @@ export class StrategySourceService {
     const query = normalizeQuery(role)
     if (!gameInfo || !query) return { ok: false, reason: "invalid_query", game, role: query, items: [] }
     const sources = STRATEGY_AUTHORS.filter(source => source.games.includes(game))
-    const refreshed = options.refresh === false
-      ? { cache: await this.readCache(), failures: [] }
-      : await this.refreshSources(sources)
-    const { cache, failures } = refreshed
-    const items = sources.flatMap(source => {
-      const best = selectBestPost(cache.authors[source.uid]?.posts || [], gameInfo.id, query)
-      return best ? [{ ...best, author: source.nickname, authorUid: source.uid, game, gameLabel: gameInfo.label, articleUrl: articleUrl(gameInfo.slug, best.postId) }] : []
-    })
+    let cache = await this.readCache()
+    let items = this.selectItems(cache, sources, game, gameInfo, query)
+    let failures = []
+    const staleSources = options.forceRefresh === true ? sources : sources.filter(source => this.isStale(cache.authors[source.uid]))
+    if (options.refresh !== false && staleSources.length) {
+      const hasLocalData = sources.some(source => Array.isArray(cache.authors[source.uid]?.posts) && cache.authors[source.uid].posts.length > 0)
+      if (!hasLocalData || items.length === 0 || options.forceRefresh === true) {
+        const refreshed = await this.refreshSources(staleSources, { skipFresh: options.forceRefresh !== true })
+        cache = refreshed.cache
+        failures = refreshed.failures
+        items = this.selectItems(cache, sources, game, gameInfo, query)
+      } else {
+        // Stale-while-revalidate: return an existing guide immediately and update
+        // the relevant authors in the background for the next request.
+        this.lastBackgroundRefresh = this.refreshSources(staleSources, { skipFresh: true }).catch(error => {
+          globalThis.logger?.warn?.(`[Lotus-Plugin] strategy background refresh failed: ${error.message}`)
+          return { cache, results: [], failures: [{ error: error.message }] }
+        })
+      }
+    }
     return {
       ok: items.length > 0,
       reason: items.length ? "ok" : failures.length === sources.length ? "source_unavailable" : "not_found",
@@ -60,6 +79,13 @@ export class StrategySourceService {
     }
   }
 
+  selectItems(cache, sources, game, gameInfo, query) {
+    return sources.flatMap(source => {
+      const best = selectBestPost(cache.authors[source.uid]?.posts || [], gameInfo.id, query)
+      return best ? [{ ...best, author: source.nickname, authorUid: source.uid, game, gameLabel: gameInfo.label, articleUrl: articleUrl(gameInfo.slug, best.postId) }] : []
+    })
+  }
+
   async refreshIncremental() {
     const { results } = await this.refreshSources(STRATEGY_AUTHORS)
     return { ok: results.some(item => item.ok), results }
@@ -70,16 +96,26 @@ export class StrategySourceService {
     return this.refreshIncremental()
   }
 
-  async refreshSources(sources) {
+  async refreshSources(sources, options = {}) {
     return this.withRefreshLock(async () => {
       const cache = await this.readCache()
+      const targets = options.skipFresh ? sources.filter(source => this.isStale(cache.authors[source.uid])) : sources
       const results = []
       const failures = []
       let changed = false
-      for (const source of sources) {
+      const fetched = await mapLimit(targets, this.refreshConcurrency, async source => {
         const previous = cache.authors[source.uid]
         try {
           const result = await this.fetchAuthorIncremental(source, previous)
+          return { source, previous, result }
+        } catch (error) {
+          return { source, previous, error }
+        }
+      })
+      for (const item of fetched) {
+        const { source, previous } = item
+        if (!item.error) {
+          const result = item.result
           cache.authors[source.uid] = result.entry
           changed = true
           results.push({
@@ -92,8 +128,8 @@ export class StrategySourceService {
             pages: result.pages,
             bootstrap: result.bootstrap,
           })
-        } catch (error) {
-          const failure = { uid: source.uid, nickname: source.nickname, error: error.message }
+        } else {
+          const failure = { uid: source.uid, nickname: source.nickname, error: item.error.message }
           failures.push(failure)
           results.push({ ...failure, ok: false, retained: Boolean(previous) })
         }
@@ -170,10 +206,18 @@ export class StrategySourceService {
 
   async readCache() {
     try {
+      const stat = await fs.stat(this.cacheFile)
+      if (this.cacheMemory && this.cacheMtimeMs === stat.mtimeMs) return this.cacheMemory
       const parsed = JSON.parse(await fs.readFile(this.cacheFile, "utf8"))
-      return { version: CACHE_VERSION, updatedAt: parsed.updatedAt || null, authors: parsed.authors && typeof parsed.authors === "object" ? parsed.authors : {} }
+      const cache = { version: CACHE_VERSION, updatedAt: parsed.updatedAt || null, authors: parsed.authors && typeof parsed.authors === "object" ? parsed.authors : {} }
+      this.cacheMemory = cache
+      this.cacheMtimeMs = stat.mtimeMs
+      return cache
     } catch {
-      return { version: CACHE_VERSION, updatedAt: null, authors: {} }
+      const cache = { version: CACHE_VERSION, updatedAt: null, authors: {} }
+      this.cacheMemory = cache
+      this.cacheMtimeMs = null
+      return cache
     }
   }
 
@@ -181,9 +225,19 @@ export class StrategySourceService {
     const target = path.resolve(this.cacheFile)
     await fs.mkdir(path.dirname(target), { recursive: true })
     const temp = `${target}.${process.pid}.${Date.now()}.tmp`
-    const data = `${JSON.stringify({ ...cache, version: CACHE_VERSION, updatedAt: new Date(this.now()).toISOString() }, null, 2)}\n`
+    cache.version = CACHE_VERSION
+    cache.updatedAt = new Date(this.now()).toISOString()
+    const data = `${JSON.stringify(cache, null, 2)}\n`
     await fs.writeFile(temp, data, "utf8")
     await fs.rename(temp, target)
+    const stat = await fs.stat(target)
+    this.cacheMemory = cache
+    this.cacheMtimeMs = stat.mtimeMs
+  }
+
+  isStale(entry) {
+    const checkedAt = Date.parse(entry?.checkedAt || entry?.updatedAt || "")
+    return !Number.isFinite(checkedAt) || this.now() - checkedAt >= this.ttlMs
   }
 
   async withRefreshLock(operation) {
@@ -261,3 +315,16 @@ function articleUrl(slug, postId) { return `https://www.miyoushe.com/${slug}/art
 function normalizeQuery(value = "") { return String(value || "").normalize("NFKC").trim().replace(/^[\s#*%％]+|[\s#*%％]+$/g, "") }
 function normalizeMatchText(value = "") { return String(value).normalize("NFKC").toLowerCase().replace(/[\s「」『』【】()（）·•・丶、。,，:：/\\|_—-]+/g, "") }
 function positiveInt(value, fallback) { const parsed = Number(value); return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback }
+
+async function mapLimit(items, limit, operation) {
+  const results = new Array(items.length)
+  let cursor = 0
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor++
+      results[index] = await operation(items[index], index)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
+}

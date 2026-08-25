@@ -311,7 +311,7 @@ docker exec trss-yunzai sh -lc '
 docker exec trss-yunzai sh -lc 'cd /root/Yunzai/plugins/Lotus-Plugin && pnpm test'
 ```
 
-所有测试必须通过；当前 Windows 本地按锁文件安装依赖后的完整基线为 `94 passed / 0 failed`。Windows 本地未安装 `node_modules` 时先执行 `corepack pnpm install --frozen-lockfile`，不要把因 `yaml` 缺失导致的导入失败记为业务回归失败。
+所有测试必须通过；当前 Windows 本地按锁文件安装依赖后的完整基线为 `97 passed / 0 failed`。Windows 本地未安装 `node_modules` 时先执行 `corepack pnpm install --frozen-lockfile`，不要把因 `yaml` 缺失导致的导入失败记为业务回归失败。
 
 该数字同时在 Windows 本地项目和 TRSS-Yunzai Debian/Linux 容器中复核。与初始化稳定性直接相关的定向用例至少覆盖：全部网络不可达时零修改、关键阶段失败门禁、失败基线无半成品、并发 Hook 独立临时日志、调用方环境继承、超时进程树清理、ZIP 来源安装及回滚脚本可执行性。测试数量变化时，应同步更新项目 README、文档目录、初始化、安装和本运行手册中的基线数字。
 
@@ -553,7 +553,7 @@ docker exec trss-yunzai sh -lc '
 
 当次实测结果为：`11` 张旧图 → `118` 张，扫描 `125` 个官方角色，可用 `118`、下载 `118`、失败 `0`、上游暂无 `7`。完整配置、调度、Git 更新和回滚步骤见 [Auto-Plugin 与角色攻略维护](auto-plugin.md)。
 
-Lotus 自身的三游戏攻略作者库与 Auto-Plugin 的原神 JPG 库相互独立。Lotus 将文章索引持久化在 `plugins/Lotus-Plugin/data/strategy-authors/cache.json`：首次为空时分页建库，之后定时任务、`#更新攻略作者库` 和角色攻略查询都从最新页开始增量检查，遇到本地已知文章即停止翻页；请求失败保留旧缓存。排查时先按[三游戏攻略本地缓存与增量刷新](features/strategy-cache.md)验证 JSON、增量页数和日志，不要把删除缓存作为首选操作。
+Lotus 自身的三游戏攻略作者库与 Auto-Plugin 的原神 JPG 库相互独立。Lotus 将文章索引持久化在 `plugins/Lotus-Plugin/data/strategy-authors/cache.json`：首次为空时分页建库，定时任务和主人手动更新从最新页开始增量检查，遇到本地已知文章即停止翻页。普通角色查询使用12小时作者新鲜期和进程内存缓存；过期命中先回复再后台刷新，过期未命中才等待刷新。请求失败保留旧缓存。排查时先按[三游戏攻略本地缓存与增量刷新](features/strategy-cache.md)验证 JSON、增量页数和日志，不要把删除缓存作为首选操作。
 
 ## 5. 日志检查标准流程
 

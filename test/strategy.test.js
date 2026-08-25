@@ -134,7 +134,7 @@ test("an old pinned post does not terminate incremental paging before newer post
   assert.equal(result.entry.posts.some(item => item.postId === "new-page-2"), true)
 })
 
-test("strategy query incrementally checks relevant authors and falls back to local cache", async () => {
+test("stale strategy hit returns local cache and refreshes authors in background", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lotus-strategy-query-"))
   const cacheFile = path.join(dir, "cache.json")
   const source = STRATEGY_AUTHORS.find(item => item.games.includes("gs"))
@@ -148,8 +148,87 @@ test("strategy query incrementally checks relevant authors and falls back to loc
   const result = await service.query("gs", "奥黛塔")
   assert.equal(result.ok, true)
   assert.equal(result.items[0].postId, "local")
-  assert.equal(result.failures.length > 0, true)
+  assert.equal(result.failures.length, 0)
+  assert.ok(service.lastBackgroundRefresh)
+  const background = await service.lastBackgroundRefresh
+  assert.equal(background.failures.length > 0, true)
   const cached = await service.readCache()
   assert.equal(cached.authors[source.uid].posts[0].postId, "local")
+  await fs.rm(dir, { recursive: true, force: true })
+})
+
+test("fresh author cache is reused for twelve hours without network requests", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lotus-strategy-fresh-"))
+  const cacheFile = path.join(dir, "cache.json")
+  const now = Date.parse("2026-08-25T12:00:00.000Z")
+  let calls = 0
+  const service = new StrategySourceService({ cacheFile, now: () => now, fetchImpl: async () => { calls++; throw new Error("network should not run") } })
+  const authors = {}
+  for (const source of STRATEGY_AUTHORS.filter(item => item.games.includes("gs"))) {
+    authors[source.uid] = {
+      nickname: source.nickname,
+      checkedAt: new Date(now - 12 * 60 * 60 * 1000 + 1).toISOString(),
+      updatedAt: new Date(now).toISOString(),
+      posts: source === STRATEGY_AUTHORS[0] ? [{ postId: "fresh", gameId: 2, subject: "奥黛塔一图流攻略", content: "", topics: [], images: [], createdAt: 1, updatedAt: 1 }] : [],
+    }
+  }
+  await service.writeCache({ authors })
+  const first = await service.readCache()
+  const second = await service.readCache()
+  const result = await service.query("gs", "奥黛塔")
+  assert.equal(result.ok, true)
+  assert.equal(result.items[0].postId, "fresh")
+  assert.equal(calls, 0)
+  assert.equal(first, second)
+  const forced = await service.query("gs", "奥黛塔", { forceRefresh: true })
+  assert.equal(forced.ok, true)
+  assert.equal(calls, 3)
+  await fs.rm(dir, { recursive: true, force: true })
+})
+
+test("stale cache miss waits for one refresh so a newly published guide can be returned", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lotus-strategy-new-guide-"))
+  const cacheFile = path.join(dir, "cache.json")
+  const gsSources = STRATEGY_AUTHORS.filter(item => item.games.includes("gs"))
+  const byUid = new Map(gsSources.map(item => [item.uid, item]))
+  let calls = 0
+  const service = new StrategySourceService({
+    cacheFile,
+    now: () => Date.parse("2026-08-25T12:00:00.000Z"),
+    fetchImpl: async url => {
+      calls++
+      const source = byUid.get(new URL(url).searchParams.get("uid"))
+      return { ok: true, status: 200, async json() { return { retcode: 0, data: { list: [{ post: { post_id: `new-${source.uid}`, game_id: 2, subject: "新角色一图流攻略", content: "", images: [], created_at: 2 }, user: { nickname: source.nickname }, topics: [] }], is_last: true, next_offset: "" } } } }
+    },
+  })
+  await service.writeCache({ authors: Object.fromEntries(gsSources.map(source => [source.uid, { nickname: source.nickname, checkedAt: "2026-08-24T00:00:00.000Z", updatedAt: null, posts: [] }])) })
+  const result = await service.query("gs", "新角色")
+  assert.equal(result.ok, true)
+  assert.equal(result.items.length, 3)
+  assert.equal(calls, 3)
+  await fs.rm(dir, { recursive: true, force: true })
+})
+
+test("author refreshes run with bounded parallelism instead of serial requests", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lotus-strategy-parallel-"))
+  const sources = STRATEGY_AUTHORS.filter(item => item.games.includes("gs"))
+  const byUid = new Map(sources.map(item => [item.uid, item]))
+  let active = 0
+  let maxActive = 0
+  const service = new StrategySourceService({
+    cacheFile: path.join(dir, "cache.json"),
+    refreshConcurrency: 3,
+    fetchImpl: async url => {
+      active++
+      maxActive = Math.max(maxActive, active)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      active--
+      const source = byUid.get(new URL(url).searchParams.get("uid"))
+      return { ok: true, status: 200, async json() { return { retcode: 0, data: { list: [{ post: { post_id: source.uid, game_id: 2, subject: "攻略", content: "", images: [], created_at: 1 }, user: { nickname: source.nickname }, topics: [] }], is_last: true, next_offset: "" } } } }
+    },
+  })
+  const result = await service.refreshSources(sources)
+  assert.equal(result.results.every(item => item.ok), true)
+  assert.equal(maxActive, 3)
   await fs.rm(dir, { recursive: true, force: true })
 })
