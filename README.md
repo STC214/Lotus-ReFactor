@@ -18,7 +18,7 @@
 
 分容器部署当前验证的媒体发送基线为 **LLBot 8.1.8**（镜像 `linyuchen/llbot:8.1.8`）。旧版 `8.1.0` 曾在较大视频上传时返回 `Highway 102902`；升级、挂载、验收和回滚流程见 [LLBot 部署与大文件发送](docs/llbot.md)。
 
-Auto-Plugin 与角色攻略的当前共存方案、新角色攻略全量发现、每日两次自动刷新、更新与回滚说明见 [Auto-Plugin 与角色攻略维护](docs/auto-plugin.md)。
+Auto-Plugin 与角色攻略的当前共存方案、新角色攻略全量发现、更新与回滚说明见 [Auto-Plugin 与角色攻略维护](docs/auto-plugin.md)。Lotus 自身的三游戏攻略数据会持久化到本地，定时任务和查询使用增量检查，详见[三游戏攻略本地缓存与增量刷新](docs/features/strategy-cache.md)。
 
 ## 从已有 Yunzai 安装当前完全体
 
@@ -30,7 +30,7 @@ Auto-Plugin 与角色攻略的当前共存方案、新角色攻略全量发现�
 
 该主人专用指令会先显示 GitHub、Gitee、PyPI、Python Files 和 npm 等依赖站点的 HTTP Ping，并提醒检查“魔法网络”，随后自动执行运行手册中的可回滚基线备份、系统组件检查、锅巴安装、Git/ZIP 两种来源的子组件补齐、pnpm 版本自适应、构建策略持久化、Node 原生依赖修复、Python/验证码/下载工具/背景池/图鉴初始化和测试验收。全部依赖站点不可达时会在修改环境前停止；任一基础关键阶段失败后不再执行后续修改或运行时初始化。基线采用临时代次完整写入后原子切换，Git Hook 使用独立临时日志，超时命令会清理完整进程树。账号扫码登录及设备绑定涉及每个账号各自的登录态，仍在初始化完成后按结果卡提示逐个执行。详细说明见[一键完整初始化](docs/initialization.md#一键完整初始化)。
 
-当前 TRSS-Yunzai 容器的完整回归基线为 **91 passed / 0 failed**；Windows 本地在未安装项目依赖时已完成攻略与帮助定向测试 **7 passed / 0 failed**。维护、验证、回滚和更新后复核步骤见[安装与故障处置运行手册](docs/maintenance-runbook.md)。
+当前 Windows 本地按锁文件安装依赖后的完整回归基线为 **94 passed / 0 failed**，其中攻略增量与离线缓存定向测试为 **7 passed / 0 failed**。维护、验证、回滚和更新后复核步骤见[安装与故障处置运行手册](docs/maintenance-runbook.md)。
 
 如果 Yunzai/TRSS-Yunzai 已经可以正常启动，按以下顺序安装即可：
 

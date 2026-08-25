@@ -29,6 +29,7 @@
 - [队伍伤害-原神](team-damage-genshin.md)
 - [队伍伤害-星铁](team-damage-starrail.md)
 - [挑战查询-图鉴期数](challenge-query.md)
+- [三游戏攻略-本地缓存与增量刷新](strategy-cache.md)
 
 ## 图鉴与成就
 

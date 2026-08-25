@@ -36,17 +36,19 @@ export class LotusStrategy extends BasePlugin {
 
   async refresh() {
     if (!this.e?.isMaster) return false
-    await replyText(this, "[荷花插件]正在刷新原神、星铁和绝区零攻略作者库…")
-    const result = await this.service.refreshAll()
+    await replyText(this, "[荷花插件]正在增量检查原神、星铁和绝区零攻略作者库…")
+    const result = await this.service.refreshIncremental()
     await replyText(this, formatRefreshResult(result))
     return true
   }
 
   async scheduledRefresh() {
-    const result = await this.service.refreshAll()
+    const result = await this.service.refreshIncremental()
     const success = result.results.filter(item => item.ok).length
     const failed = result.results.length - success
-    globalThis.logger?.[failed ? "warn" : "mark"]?.(`[Lotus-Plugin] strategy author cache refreshed: ${success} succeeded, ${failed} failed`)
+    const added = result.results.reduce((sum, item) => sum + Number(item.added || 0), 0)
+    const updated = result.results.reduce((sum, item) => sum + Number(item.updated || 0), 0)
+    globalThis.logger?.[failed ? "warn" : "mark"]?.(`[Lotus-Plugin] strategy cache incrementally refreshed: ${success} succeeded, ${failed} failed, ${added} added, ${updated} updated`)
     return result.ok
   }
 }
@@ -59,6 +61,8 @@ function buildForwardNode(item) {
 }
 
 function formatRefreshResult(result) {
-  const lines = result.results.map(item => item.ok ? `✓ ${item.nickname}：${item.posts}篇` : `✗ ${item.nickname}：${item.error}${item.retained ? "（已保留旧缓存）" : ""}`)
-  return `[荷花插件]攻略作者库刷新${result.ok ? "完成" : "失败"}：\n${lines.join("\n")}`
+  const lines = result.results.map(item => item.ok
+    ? `✓ ${item.nickname}：新增 ${item.added}、更新 ${item.updated}、本地共 ${item.posts} 篇（读取 ${item.pages} 页）`
+    : `✗ ${item.nickname}：${item.error}${item.retained ? "（已保留本地旧缓存）" : ""}`)
+  return `[荷花插件]攻略作者库增量刷新${result.ok ? "完成" : "失败"}：\n${lines.join("\n")}`
 }

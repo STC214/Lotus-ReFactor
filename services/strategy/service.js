@@ -23,7 +23,7 @@ const DEFAULT_CACHE = fileURLToPath(new URL("../../data/strategy-authors/cache.j
 const API = "https://bbs-api.mihoyo.com/post/wapi/userPost"
 const DEFAULT_MAX_PAGES = 12
 const DEFAULT_PAGE_SIZE = 50
-const DEFAULT_TTL_MS = 12 * 60 * 60 * 1000
+const CACHE_VERSION = 2
 
 export class StrategySourceService {
   constructor(options = {}) {
@@ -31,8 +31,8 @@ export class StrategySourceService {
     this.cacheFile = options.cacheFile || DEFAULT_CACHE
     this.maxPages = positiveInt(options.maxPages, DEFAULT_MAX_PAGES)
     this.pageSize = positiveInt(options.pageSize, DEFAULT_PAGE_SIZE)
-    this.ttlMs = positiveInt(options.ttlMs, DEFAULT_TTL_MS)
     this.now = options.now || Date.now
+    this.refreshQueue = Promise.resolve()
   }
 
   async query(game, role, options = {}) {
@@ -40,17 +40,10 @@ export class StrategySourceService {
     const query = normalizeQuery(role)
     if (!gameInfo || !query) return { ok: false, reason: "invalid_query", game, role: query, items: [] }
     const sources = STRATEGY_AUTHORS.filter(source => source.games.includes(game))
-    const cache = await this.readCache()
-    const stale = sources.filter(source => options.forceRefresh === true || this.isStale(cache.authors[source.uid]))
-    const failures = []
-    for (const source of stale) {
-      try {
-        cache.authors[source.uid] = await this.fetchAuthor(source)
-      } catch (error) {
-        failures.push({ uid: source.uid, nickname: source.nickname, error: error.message })
-      }
-    }
-    if (stale.length && stale.length !== failures.length) await this.writeCache(cache)
+    const refreshed = options.refresh === false
+      ? { cache: await this.readCache(), failures: [] }
+      : await this.refreshSources(sources)
+    const { cache, failures } = refreshed
     const items = sources.flatMap(source => {
       const best = selectBestPost(cache.authors[source.uid]?.posts || [], gameInfo.id, query)
       return best ? [{ ...best, author: source.nickname, authorUid: source.uid, game, gameLabel: gameInfo.label, articleUrl: articleUrl(gameInfo.slug, best.postId) }] : []
@@ -67,29 +60,61 @@ export class StrategySourceService {
     }
   }
 
-  async refreshAll() {
-    const previous = await this.readCache()
-    const next = { version: 1, updatedAt: new Date(this.now()).toISOString(), authors: { ...previous.authors } }
-    const results = []
-    for (const source of STRATEGY_AUTHORS) {
-      try {
-        const entry = await this.fetchAuthor(source)
-        next.authors[source.uid] = entry
-        results.push({ uid: source.uid, nickname: source.nickname, ok: true, posts: entry.posts.length })
-      } catch (error) {
-        results.push({ uid: source.uid, nickname: source.nickname, ok: false, error: error.message, retained: Boolean(previous.authors[source.uid]) })
-      }
-    }
-    await this.writeCache(next)
+  async refreshIncremental() {
+    const { results } = await this.refreshSources(STRATEGY_AUTHORS)
     return { ok: results.some(item => item.ok), results }
   }
 
+  // Kept for callers from older Lotus builds; this is incremental, not a full replacement.
+  async refreshAll() {
+    return this.refreshIncremental()
+  }
+
+  async refreshSources(sources) {
+    return this.withRefreshLock(async () => {
+      const cache = await this.readCache()
+      const results = []
+      const failures = []
+      let changed = false
+      for (const source of sources) {
+        const previous = cache.authors[source.uid]
+        try {
+          const result = await this.fetchAuthorIncremental(source, previous)
+          cache.authors[source.uid] = result.entry
+          changed = true
+          results.push({
+            uid: source.uid,
+            nickname: source.nickname,
+            ok: true,
+            posts: result.entry.posts.length,
+            added: result.added,
+            updated: result.updated,
+            pages: result.pages,
+            bootstrap: result.bootstrap,
+          })
+        } catch (error) {
+          const failure = { uid: source.uid, nickname: source.nickname, error: error.message }
+          failures.push(failure)
+          results.push({ ...failure, ok: false, retained: Boolean(previous) })
+        }
+      }
+      if (changed) await this.writeCache(cache)
+      return { cache, results, failures }
+    })
+  }
+
   async fetchAuthor(source) {
+    return (await this.fetchAuthorIncremental(source, null)).entry
+  }
+
+  async fetchAuthorIncremental(source, previousEntry) {
     if (typeof this.fetchImpl !== "function") throw new Error("fetch is unavailable")
-    const posts = []
-    const seenPosts = new Set()
+    const previousPosts = Array.isArray(previousEntry?.posts) ? previousEntry.posts : []
+    const previousById = new Map(previousPosts.map(post => [String(post.postId), post]))
+    const fetchedById = new Map()
     const seenOffsets = new Set(["0"])
     let offset = "0"
+    let pages = 0
     for (let page = 0; page < this.maxPages; page++) {
       const url = `${API}?uid=${encodeURIComponent(source.uid)}&size=${this.pageSize}&offset=${encodeURIComponent(offset)}`
       const response = await this.fetchImpl(url, { headers: { "user-agent": "Lotus-Plugin/strategy-source" } })
@@ -97,33 +122,58 @@ export class StrategySourceService {
       const payload = await response.json()
       if (Number(payload?.retcode || 0) !== 0) throw new Error(`API ${payload?.retcode}: ${payload?.message || "unknown"}`)
       const list = Array.isArray(payload?.data?.list) ? payload.data.list : []
+      pages++
+      let pageLastPostWasKnown = false
+      let pageHasAcceptedPost = false
       for (const row of list) {
         const post = normalizePost(row)
-        if (!post?.postId || seenPosts.has(post.postId)) continue
+        if (!post?.postId || fetchedById.has(post.postId)) continue
         if (!authorMatches(row?.user?.nickname, source)) continue
-        seenPosts.add(post.postId)
-        posts.push(post)
+        pageHasAcceptedPost = true
+        pageLastPostWasKnown = previousById.has(post.postId)
+        fetchedById.set(post.postId, post)
       }
+      // Existing caches only need the newest pages. Once a known post appears,
+      // at the old end of a page, older pages are already present locally. Looking
+      // at the page tail avoids treating an old pinned post as the history boundary.
+      if (previousById.size && pageHasAcceptedPost && pageLastPostWasKnown) break
       if (payload?.data?.is_last === true || !payload?.data?.next_offset || list.length === 0) break
       const nextOffset = String(payload.data.next_offset)
       if (seenOffsets.has(nextOffset)) break
       seenOffsets.add(nextOffset)
       offset = nextOffset
     }
-    return { nickname: source.nickname, updatedAt: new Date(this.now()).toISOString(), posts }
-  }
-
-  isStale(entry) {
-    const updatedAt = Date.parse(entry?.updatedAt || "")
-    return !Number.isFinite(updatedAt) || this.now() - updatedAt >= this.ttlMs
+    let added = 0
+    let updated = 0
+    for (const [postId, post] of fetchedById) {
+      const previous = previousById.get(postId)
+      if (!previous) added++
+      else if (!postsEqual(previous, post)) updated++
+      previousById.set(postId, post)
+    }
+    const posts = [...previousById.values()].sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+    const checkedAt = new Date(this.now()).toISOString()
+    const contentChanged = added > 0 || updated > 0
+    return {
+      entry: {
+        nickname: source.nickname,
+        checkedAt,
+        updatedAt: contentChanged ? checkedAt : previousEntry?.updatedAt || checkedAt,
+        posts,
+      },
+      added,
+      updated,
+      pages,
+      bootstrap: previousById.size === fetchedById.size && !previousPosts.length,
+    }
   }
 
   async readCache() {
     try {
       const parsed = JSON.parse(await fs.readFile(this.cacheFile, "utf8"))
-      return { version: 1, updatedAt: parsed.updatedAt || null, authors: parsed.authors && typeof parsed.authors === "object" ? parsed.authors : {} }
+      return { version: CACHE_VERSION, updatedAt: parsed.updatedAt || null, authors: parsed.authors && typeof parsed.authors === "object" ? parsed.authors : {} }
     } catch {
-      return { version: 1, updatedAt: null, authors: {} }
+      return { version: CACHE_VERSION, updatedAt: null, authors: {} }
     }
   }
 
@@ -131,9 +181,21 @@ export class StrategySourceService {
     const target = path.resolve(this.cacheFile)
     await fs.mkdir(path.dirname(target), { recursive: true })
     const temp = `${target}.${process.pid}.${Date.now()}.tmp`
-    const data = `${JSON.stringify({ ...cache, version: 1, updatedAt: new Date(this.now()).toISOString() }, null, 2)}\n`
+    const data = `${JSON.stringify({ ...cache, version: CACHE_VERSION, updatedAt: new Date(this.now()).toISOString() }, null, 2)}\n`
     await fs.writeFile(temp, data, "utf8")
     await fs.rename(temp, target)
+  }
+
+  async withRefreshLock(operation) {
+    const previous = this.refreshQueue
+    let release
+    this.refreshQueue = new Promise(resolve => { release = resolve })
+    await previous
+    try {
+      return await operation()
+    } finally {
+      release()
+    }
   }
 }
 
@@ -182,8 +244,12 @@ function normalizePost(row) {
     postId: String(raw.post_id || ""), gameId: Number(raw.game_id || 0), subject: String(raw.subject || "").trim(),
     content: String(raw.content || "").replace(/\[[^\]]+\]/g, " ").trim(),
     topics: Array.isArray(row?.topics) ? row.topics.map(item => String(item?.name || "")).filter(Boolean) : [],
-    images: [...new Set(images)], createdAt: Number(raw.created_at || 0),
+    images: [...new Set(images)], createdAt: Number(raw.created_at || 0), updatedAt: Number(raw.updated_at || raw.created_at || 0),
   }
+}
+
+function postsEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right)
 }
 
 function authorMatches(nickname, source) {

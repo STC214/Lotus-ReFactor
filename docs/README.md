@@ -48,6 +48,7 @@
   - [图鉴查询-多游戏资料](features/atlas-gallery.md)
   - [成就图鉴-查漏补缺](features/achievements.md)
 - [Auto-Plugin 与角色攻略维护](auto-plugin.md)
+  - [三游戏攻略-本地缓存与增量刷新](features/strategy-cache.md)
 
 ## 媒体、外部任务与群管理
 
@@ -80,7 +81,7 @@
 - 回滚基线先写入随机临时代次，完整后原子改名；失败不会留下可被误用的半成品代次。
 - 更新保护兼容普通仓库、Git worktree 和 `core.hooksPath`；并发 Hook 使用 PID 独立临时日志。
 - 外部命令超时会清理进程树；即使首进程先退出，也会强制结束仍在运行的同组子进程。
-- 当前 TRSS-Yunzai 容器完整回归基线：**91 passed / 0 failed**；Windows 本地攻略与帮助定向测试：**7 passed / 0 failed**。
+- 当前 Windows 本地完整回归基线：**94 passed / 0 failed**；攻略增量与离线缓存定向测试：**7 passed / 0 failed**。
 - 当前媒体发送基线：**LLBot 8.1.8**；已复测旧版出现 `Highway 102902` 的大视频发送链路。
 
 完整原理见[初始化](initialization.md)，人工部署见[安装与部署](installation.md)，维护复核见[运行手册](maintenance-runbook.md)。
