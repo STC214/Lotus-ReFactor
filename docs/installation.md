@@ -454,3 +454,7 @@ docker exec trss-yunzai ls -ld /root/Yunzai/plugins/Lotus-Plugin/data/bilibili/d
 两边文件均存在且同一文件的 SHA-256 一致后，重新私聊发送 `#绑定设备4` 或重新解析B站链接。只读挂载不会允许 LLBot 修改插件资源和下载结果。
 
 当前验证的 LLBot 基线为 `8.1.8`。如果旧版 LLBot 在大视频发送阶段出现 `Highway 102902`，即使两边文件大小和 SHA-256 一致，也应先备份 `/app/llbot/data` 的宿主机持久化目录并升级 LLBot；不要反复重装荷花或重新下载同一个视频。详细命令见 [LLBot 部署、升级与大文件发送](llbot.md)。
+
+## 可选：安装 Auto-Plugin 并自动刷新角色攻略
+
+Auto-Plugin 不是 Lotus 完全体的强制依赖。需要自动补齐新角色攻略时，再按 [Auto-Plugin 与角色攻略维护](auto-plugin.md#从已有-yunzai-安装) 安装。当前部署会关闭自动更新、自动改群名和自动禁言等高影响功能，只开启已经修复的攻略刷新任务。

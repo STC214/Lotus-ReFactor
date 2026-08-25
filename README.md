@@ -18,6 +18,8 @@
 
 分容器部署当前验证的媒体发送基线为 **LLBot 8.1.8**（镜像 `linyuchen/llbot:8.1.8`）。旧版 `8.1.0` 曾在较大视频上传时返回 `Highway 102902`；升级、挂载、验收和回滚流程见 [LLBot 部署与大文件发送](docs/llbot.md)。
 
+Auto-Plugin 与角色攻略的当前共存方案、新角色攻略全量发现、每日两次自动刷新、更新与回滚说明见 [Auto-Plugin 与角色攻略维护](docs/auto-plugin.md)。
+
 ## 从已有 Yunzai 安装当前完全体
 
 已经把 Lotus 源码放入 `plugins/Lotus-Plugin` 并至少成功加载一次后，bot 主人可直接发送：

@@ -47,6 +47,7 @@
 - [图鉴总览](atlas.md)
   - [图鉴查询-多游戏资料](features/atlas-gallery.md)
   - [成就图鉴-查漏补缺](features/achievements.md)
+- [Auto-Plugin 与角色攻略维护](auto-plugin.md)
 
 ## 媒体、外部任务与群管理
 
