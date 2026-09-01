@@ -85,3 +85,6 @@
 - 当前媒体发送基线：**LLBot 8.1.8**；已复测旧版出现 `Highway 102902` 的大视频发送链路。
 
 完整原理见[初始化](initialization.md)，人工部署见[安装与部署](installation.md)，维护复核见[运行手册](maintenance-runbook.md)。
+- [?????????????](../../map-route-blueprint.md)
+
+- [体力查询失败排查记录](daily-note-troubleshooting.md)

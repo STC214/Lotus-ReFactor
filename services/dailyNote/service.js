@@ -231,6 +231,14 @@ async function requestDailyNote({
   role,
   uid,
 } = {}) {
+  // 部分 TRSS 部署未向插件模块暴露裸名 redis；MysApi 会读取缓存，
+  // 没有全局缓存对象时提供进程内空缓存，避免体力查询直接失败。
+  if (!globalThis.redis || typeof globalThis.redis.get !== "function") {
+    globalThis.redis = {
+      get: async () => null,
+      setEx: async () => true,
+    }
+  }
   const server = resolveServer({
     server: role.region,
     uid,
