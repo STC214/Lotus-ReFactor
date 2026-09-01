@@ -88,3 +88,5 @@
 - [?????????????](../../map-route-blueprint.md)
 
 - [体力查询失败排查记录](daily-note-troubleshooting.md)
+
+- [Atlas 与 logier-plugin 上游更新审计（2026-09-01）](upstream-plugin-audit-20260901.md)
