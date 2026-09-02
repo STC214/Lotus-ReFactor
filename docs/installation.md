@@ -45,7 +45,7 @@ Debian 等发行版可能移除 Python 自带的 `ensurepip`。插件会先尝�
 
 源码首次 clone 和使插件首次加载仍是前置动作；每个账号的扫码登录、设备绑定与 Cookie 配置仍需本人逐个完成。完整阶段解释、重跑规则和独立脚本入口见：[一键完整初始化](initialization.md#一键完整初始化)。
 
-当前 Windows 本地按锁文件安装依赖后的完整回归结果为 **97 passed / 0 failed**，其中攻略缓存与刷新定向测试为 **10 passed / 0 failed**。本地若没有 `node_modules`，完整测试会因 `yaml` 等依赖缺失停止；应先执行 `corepack pnpm install --frozen-lockfile`。更新后建议按本章验证命令复查依赖，并按[运行手册](maintenance-runbook.md)检查 Hook 状态和容器加载记录。
+当前完整回归结果为 **99 passed / 0 failed**，其中攻略缓存与刷新定向测试为 **10 passed / 0 failed**，B站磁盘策略与清理边界测试为 **2 passed / 0 failed**。本地若没有 `node_modules`，完整测试会因 `yaml` 等依赖缺失停止；应先执行 `corepack pnpm install --frozen-lockfile`。更新后建议按本章验证命令复查依赖，并按[运行手册](maintenance-runbook.md)检查 Hook 状态和容器加载记录。
 
 下面假设 Yunzai 已经安装完成并能启动，Yunzai 根目录为 `/root/Yunzai`。Docker 用户应在 Yunzai 容器内执行这些命令；宿主机先进入容器：
 
@@ -452,6 +452,8 @@ docker exec trss-yunzai ls -ld /root/Yunzai/plugins/Lotus-Plugin/data/bilibili/d
 ```
 
 两边文件均存在且同一文件的 SHA-256 一致后，重新私聊发送 `#绑定设备4` 或重新解析B站链接。只读挂载不会允许 LLBot 修改插件资源和下载结果。
+
+当前推荐使用节省磁盘模式：锅巴中关闭“启用下载缓存”、开启“发送后删除”。插件会等待 LLBot/Yunzai 的发送调用结束后再移除成品；挂载仍然必须保留，因为发送发生时 LLBot 需要读取同一路径。启动60秒后和每天 `04:10` 的兜底任务只清理 `data/bilibili/`，不会触碰账号、签到或其他插件数据。完整参数见 [B站解析与下载](bilibili.md#下载文件缓存与清理策略)。
 
 当前验证的 LLBot 基线为 `8.1.8`。如果旧版 LLBot 在大视频发送阶段出现 `Highway 102902`，即使两边文件大小和 SHA-256 一致，也应先备份 `/app/llbot/data` 的宿主机持久化目录并升级 LLBot；不要反复重装荷花或重新下载同一个视频。详细命令见 [LLBot 部署、升级与大文件发送](llbot.md)。
 

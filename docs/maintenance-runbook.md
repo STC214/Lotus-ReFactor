@@ -311,7 +311,7 @@ docker exec trss-yunzai sh -lc '
 docker exec trss-yunzai sh -lc 'cd /root/Yunzai/plugins/Lotus-Plugin && pnpm test'
 ```
 
-所有测试必须通过；当前 Windows 本地按锁文件安装依赖后的完整基线为 `97 passed / 0 failed`。Windows 本地未安装 `node_modules` 时先执行 `corepack pnpm install --frozen-lockfile`，不要把因 `yaml` 缺失导致的导入失败记为业务回归失败。
+所有测试必须通过；当前完整基线为 `99 passed / 0 failed`，其中新增的2项B站测试覆盖默认磁盘策略、过期文件删除、缓存清单同步和目录外文件保护。本地未安装 `node_modules` 时先执行 `corepack pnpm install --frozen-lockfile`，不要把因 `yaml` 缺失导致的导入失败记为业务回归失败。
 
 该数字同时在 Windows 本地项目和 TRSS-Yunzai Debian/Linux 容器中复核。与初始化稳定性直接相关的定向用例至少覆盖：全部网络不可达时零修改、关键阶段失败门禁、失败基线无半成品、并发 Hook 独立临时日志、调用方环境继承、超时进程树清理、ZIP 来源安装及回滚脚本可执行性。测试数量变化时，应同步更新项目 README、文档目录、初始化、安装和本运行手册中的基线数字。
 
@@ -457,6 +457,35 @@ docker exec -u root trss-yunzai sh -lc 'apt-get update && apt-get install -y zip
 当前代码在 Linux/macOS 找不到 `zip` 时还会回退到 Python `zipfile`。已验证双分P `BV1XXgG6DEKo` 能生成约 11.7 MB ZIP。系统 `zip` 仍是首选。
 
 先区分配置行为和故障：单 P 在 `zip`、`all`、`first` 下都发送视频；多分 P 在 `zip` 下返回压缩包，在 `all` 下逐个发送所有视频，在 `first` 下只发送第一 P 视频。当前默认 `zip` 返回压缩包属于正常行为。策略参与缓存键计算，修改后不会命中旧策略缓存。用户希望普通分享链接优先返回一个视频时，在锅巴选择“只下首 P（first）”，不需要删除缓存或重启。
+
+#### 4.8.1 B站节省磁盘模式
+
+当前部署固定采用“每次重新下载、发送后删除”的组合：
+
+```yaml
+bilibili:
+  download:
+    cache_enable: false
+  cleanup:
+    enable: true
+    startup: true
+    cron: "0 10 4 * * ? *"
+    delete_after_send: true
+    retention_days: 1
+    tmp_retention_hours: 6
+    max_total_size_mb: 1024
+```
+
+不要同时开启 `cache_enable` 和 `delete_after_send`：虽然不会直接报错，但发送后成品及其缓存记录会被删除，缓存不会产生加速效果。配置保存并重启后验证：
+
+```bash
+docker exec trss-yunzai sh -lc '
+  cd /root/Yunzai/plugins/Lotus-Plugin
+  node --input-type=module -e "import { loadGlobalConfig } from \"./core/config/global.js\"; const c=await loadGlobalConfig(); console.log(JSON.stringify({cache_enable:c.bilibili.download.cache_enable,cleanup:c.bilibili.cleanup},null,2))"
+'
+```
+
+预期 `cache_enable` 为 `false`、`delete_after_send` 为 `true`。插件启动60秒后和每天 `04:10` 兜底清理，仅扫描 `data/bilibili/tmp`、`downloads` 和 `cache.yaml`。
 
 ### 4.9 B站视频或 ZIP 已生成，但发送时报“路径不存在”
 

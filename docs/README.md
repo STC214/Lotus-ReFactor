@@ -81,8 +81,9 @@
 - 回滚基线先写入随机临时代次，完整后原子改名；失败不会留下可被误用的半成品代次。
 - 更新保护兼容普通仓库、Git worktree 和 `core.hooksPath`；并发 Hook 使用 PID 独立临时日志。
 - 外部命令超时会清理进程树；即使首进程先退出，也会强制结束仍在运行的同组子进程。
-- 当前 Windows 本地完整回归基线：**97 passed / 0 failed**；攻略缓存与刷新定向测试：**10 passed / 0 failed**。
+- 当前完整回归基线：**99 passed / 0 failed**；攻略缓存与刷新定向测试：**10 passed / 0 failed**；B站磁盘策略与清理边界测试：**2 passed / 0 failed**。
 - 当前媒体发送基线：**LLBot 8.1.8**；已复测旧版出现 `Highway 102902` 的大视频发送链路。
+- 当前B站存储策略：关闭下载缓存、开启发送后删除；启动后和每天 `04:10` 兜底清理，仅处理 `data/bilibili/`。
 
 完整原理见[初始化](initialization.md)，人工部署见[安装与部署](installation.md)，维护复核见[运行手册](maintenance-runbook.md)。
 - [?????????????](../../map-route-blueprint.md)

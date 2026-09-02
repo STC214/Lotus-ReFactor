@@ -7,7 +7,7 @@
 - 支持 B站长链接、短链接、BV 号、av 号和 QQ 分享卡片。
 - 视频解析会输出图片卡片，并继续走 BBDown 下载后发送视频文件。
 - 直播只发送信息卡和独立播放器链接，不做直播下载。
-- 启动后和每日凌晨会清理临时目录，并移除已过期或已丢失文件的下载缓存。
+- 当前采用节省磁盘模式：不复用已下载成品，发送调用结束后立即删除，并在启动后和每天 `04:10` 兜底清理。
 - 标题包含特殊符号时，会优先读取 BBDown 产物和可播放媒体文件，不依赖原始标题精确匹配。
 
 ## 指令用法
@@ -55,9 +55,34 @@ bilibili:
 
 当前默认值是 `zip`。因此，多分 P 的B站链接返回压缩包是预期行为，不表示视频格式识别错误。例如 `BV1XXgG6DEKo` 包含两个分 P，在 `zip` 策略下会返回包含两段视频的 ZIP；切换为 `first` 后只返回第一 P 视频，切换为 `all` 后依次返回两个视频。
 
-修改策略后直接保存即可。下载缓存键包含 BV号、清晰度和分 P 策略，所以从 `zip` 切换到 `first` 或 `all` 后不会继续命中原来的 ZIP 缓存。已经生成的旧文件会按现有缓存清理策略处理。
+修改策略后直接保存即可。当前节省磁盘模式关闭下载缓存，因此修改后下一次解析必然按新策略重新下载。若管理员改用缓存模式，缓存键包含 BV号、清晰度和分 P 策略，从 `zip` 切换到 `first` 或 `all` 后也不会继续命中原来的 ZIP 缓存。
 
-B 站下载只走 BBDown。ffmpeg 和 aria2 作为工具链自动准备；ffmpeg 会安装完整构建，包含 `ffmpeg`、`ffplay`、`ffprobe` 和随包文件。多分P选择“打包发送（zip）”时优先调用系统 `zip`；Linux/macOS 若缺少 `zip`，会自动使用 `python3`/`python` 标准库回退打包。建议容器仍预装 `zip`、`unzip`。启动后和每日凌晨会清理临时目录，并移除已过期或已丢失文件的下载缓存。
+B 站下载只走 BBDown。ffmpeg 和 aria2 作为工具链自动准备；ffmpeg 会安装完整构建，包含 `ffmpeg`、`ffplay`、`ffprobe` 和随包文件。多分P选择“打包发送（zip）”时优先调用系统 `zip`；Linux/macOS 若缺少 `zip`，会自动使用 `python3`/`python` 标准库回退打包。建议容器仍预装 `zip`、`unzip`。
+
+### 下载文件缓存与清理策略
+
+当前部署目标是节省磁盘并让每次请求重新获取视频，锅巴应设置为：
+
+```yaml
+bilibili:
+  download:
+    cache_enable: false
+    cache_ttl_seconds: 0
+  cleanup:
+    enable: true
+    startup: true
+    cron: "0 10 4 * * ? *"
+    delete_after_send: true
+    retention_days: 1
+    tmp_retention_hours: 6
+    max_total_size_mb: 1024
+```
+
+执行链路为：BBDown 先写入 `data/bilibili/tmp`，完整成品再移动到 `data/bilibili/downloads`；插件等待 `e.reply()`、群文件或好友文件发送调用结束，然后删除本次成品。插件启动60秒后以及每天 `04:10` 还会扫描一次，只处理 `data/bilibili/`：清除超过6小时的临时任务、超过1天的成品，并在总量超过1024MB时从最旧文件开始删除。
+
+“启用下载缓存”和“发送后删除”代表两种不同策略，不应同时开启。两者同时开启通常不会报错，但成品发送后马上被删除，缓存记录也会同步移除，下一次仍需重新下载。需要复用成品时，应改为 `cache_enable: true`、`delete_after_send: false`，并保留天数和容量上限作为兜底。
+
+清理代码会校验目标路径，只删除下载目录内部文件，不会接触签到、Profile、背景图库、攻略缓存、Python环境或其他插件目录。发送阶段使用 `await` 等待适配器调用返回后才删除；LLBot 与 Yunzai 分容器时仍必须保留后文所述的同路径只读挂载。
 
 如果 LLBot 与 Yunzai 分别运行在两个容器中，还必须将 `data/bilibili/downloads` 以相同的绝对路径只读挂载到 LLBot。否则 BBDown 和 ZIP 即使已经成功，LLBot 在发送视频或压缩包时仍会报告“路径不存在”。完整 Compose 示例见[安装与升级](installation.md#llbot-与-yunzai-分容器时发送设备-apk-和-b站文件)。
 

@@ -130,4 +130,4 @@ rm data/strategy-authors/cache.json
 - 同一服务实例第二次查询耗时 18 ms，确认命中内存缓存。
 - 两次查询均未访问作者接口、均命中 1 篇攻略且失败数为 0。
 - 容器状态为 `running / healthy`，Lotus 正常加载 31 个应用。
-- 完整回归为 97 passed / 0 failed，攻略定向测试为 10 passed / 0 failed。
+- 完整回归为 99 passed / 0 failed，攻略定向测试为 10 passed / 0 failed；新增的2项来自B站磁盘清理回归，不改变攻略功能基线。

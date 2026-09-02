@@ -764,7 +764,9 @@ export function normalizeDownloadConfig(config = {}) {
     video_size_limit_mb: Number(source.video_size_limit_mb || 100),
     max_estimated_size_mb: Number(source.max_estimated_size_mb || 0),
     multi_page_policy: ["zip", "all", "first"].includes(source.multi_page_policy) ? source.multi_page_policy : "zip",
-    cache_enable: source.cache_enable !== false,
+    // Disk-saving mode is the default. Reuse completed files only when the
+    // administrator explicitly enables the cache.
+    cache_enable: source.cache_enable === true,
     cache_ttl_seconds: Number(source.cache_ttl_seconds || 0),
     timeout_ms: Number(source.timeout_ms || 600000),
     extra_args: Array.isArray(source.extra_args) ? source.extra_args.map(String) : [],

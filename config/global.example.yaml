@@ -152,6 +152,7 @@ bilibili:
     video_size_limit_mb: 100
     max_estimated_size_mb: 0
     multi_page_policy: zip
+    # 节省磁盘模式：不复用已经发送的本地成品。
     cache_enable: false
     cache_ttl_seconds: 0
     timeout_ms: 600000
@@ -160,6 +161,7 @@ bilibili:
     enable: true
     startup: true
     cron: "0 10 4 * * ? *"
+    # 与 cache_enable 互斥使用；节省磁盘模式保持 true。
     delete_after_send: true
     retention_days: 1
     tmp_retention_hours: 6
