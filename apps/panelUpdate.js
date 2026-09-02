@@ -109,6 +109,25 @@ export class LotusPanelUpdate extends BasePlugin {
     const userId = String(this.e.user_id)
     const profileId = parseProfileIdFromMessage(this.e.msg)
     try {
+      // 无 profile 后缀时遵循 miao/TRSS 当前激活 UID；带数字后缀仍明确更新指定 profile。
+      // 这样 #更新面板 不会因为 Lotus 的 profile-1 与 miao 当前账号不同而更新错账号。
+      if (!hasPanelProfileSuffix(this.e.msg)) {
+        const activeUid = await resolveActiveUid(this.e, game)
+        if (activeUid && ["gs", "sr"].includes(game)) {
+          const result = await new MiaoPanelBridge().updatePanelByUid({
+            e: this.e,
+            uid: activeUid,
+            game,
+            forwardReplies: true,
+          })
+          logger?.info?.(`[Lotus-Plugin] default panel update uses active ${game} UID ${activeUid}`)
+          if (!result.forwarded.length) {
+            const message = pickMessage(result.messages) || "面板更新已执行，但外部插件没有返回图片。"
+            await replyText(this, `[荷花插件]${message}`)
+          }
+          return true
+        }
+      }
       const loadedProfile = await loadProfile(userId, profileId)
       if (game === "zzz") {
         await replyText(this, "[荷花插件]正在更新绝区零面板，请稍候。")
@@ -180,6 +199,27 @@ export class LotusPanelUpdate extends BasePlugin {
     await replyImage(this, image, "[荷花插件]原神/星铁面板缓存修复完成。")
     return true
   }
+}
+
+function hasPanelProfileSuffix(message = "") {
+  return /(?:更新面板|面板更新|全部面板更新|更新全部面板)\s*[1-9]\d{0,2}$/i.test(String(message).trim())
+}
+
+async function resolveActiveUid(event, game) {
+  const user = event?.user
+  try {
+    if (typeof user?.getUid === "function") {
+      const uid = await user.getUid(game)
+      if (/^[1-9]\d{7,9}$/.test(String(uid || ""))) return String(uid)
+    }
+  } catch (error) {
+    logger?.debug?.(`[Lotus-Plugin] active UID lookup skipped: ${error.message}`)
+  }
+
+  for (const candidate of [user?.uid, event?.uid, event?._mys?.uid]) {
+    if (/^[1-9]\d{7,9}$/.test(String(candidate || ""))) return String(candidate)
+  }
+  return ""
 }
 
 async function rebuildAllMiaoPanels({ intervalMs = 8000, e } = {}) {
