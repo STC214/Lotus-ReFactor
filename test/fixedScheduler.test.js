@@ -58,8 +58,18 @@ test("plan date cutoff is configurable and exposed in Guoba", () => {
 })
 
 test("Guoba renders 24-hour time fields and persists 7-field cron", () => {
-  assert.equal(GUOBA_SCHEMAS.filter(item => item.scheduleField).length, 21)
+  assert.equal(GUOBA_SCHEMAS.filter(item => item.scheduleField).length, 24)
   assert.equal(GUOBA_SCHEMAS.filter(item => item.scheduleField).every(item => !["EasyCron", "Cron"].includes(item.component)), true)
+  assert.deepEqual(
+    GUOBA_SCHEMAS
+      .filter(item => item.scheduleField === "bilibili.cleanup.cron")
+      .map(item => item.field),
+    [
+      "__schedule_v2.bilibili.cleanup.cron.frequency",
+      "__schedule_v2.bilibili.cleanup.cron.interval",
+      "__schedule_v2.bilibili.cleanup.cron.time",
+    ],
+  )
   const config = createDefaultGlobalConfig()
   config.scheduler.plan_generate_cron = "0 30 23 * * ? *"
   const form = toGuobaFormData(config)
