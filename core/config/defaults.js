@@ -186,7 +186,7 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
     cleanup: {
       enable: true,
       startup: true,
-      cron: "0 10 4 * * ? *",
+      cron: "0 20 4 * * ? *",
       delete_after_send: true,
       retention_days: 1,
       tmp_retention_hours: 6,

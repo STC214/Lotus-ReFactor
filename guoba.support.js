@@ -260,7 +260,7 @@ const GUOBA_SCHEMAS = [
 
   group("B站磁盘清理"),
   sw("bilibili.cleanup.enable", "启用自动清理", "清理 B站临时文件和过期成品。"),
-  sw("bilibili.cleanup.startup", "启动时清理", "插件启动后立即执行一次磁盘清理。"),
+  sw("bilibili.cleanup.startup", "启动时清理", "插件启动约 60 秒后执行一次磁盘清理，避开集中加载阶段。"),
   sw("bilibili.cleanup.delete_after_send", "发送后删除", "节省磁盘模式请开启；文件发送完成或失败后立即删除本地成品，此时不要同时启用下载缓存。"),
   ...schedule("bilibili.cleanup.cron", "清理时间", "定时兜底清理；界面填写周期、间隔和 24 小时时间，后端继续保存为 7 位 cron。"),
   number("bilibili.cleanup.retention_days", "成品保留天数", "0 表示不按文件年龄清理。"),

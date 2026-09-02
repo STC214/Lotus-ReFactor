@@ -160,7 +160,7 @@ bilibili:
   cleanup:
     enable: true
     startup: true
-    cron: "0 10 4 * * ? *"
+    cron: "0 20 4 * * ? *"
     # 与 cache_enable 互斥使用；节省磁盘模式保持 true。
     delete_after_send: true
     retention_days: 1

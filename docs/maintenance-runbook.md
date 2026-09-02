@@ -469,7 +469,7 @@ bilibili:
   cleanup:
     enable: true
     startup: true
-    cron: "0 10 4 * * ? *"
+    cron: "0 20 4 * * ? *"
     delete_after_send: true
     retention_days: 1
     tmp_retention_hours: 6
@@ -485,7 +485,7 @@ docker exec trss-yunzai sh -lc '
 '
 ```
 
-预期 `cache_enable` 为 `false`、`delete_after_send` 为 `true`。插件启动60秒后和每天 `04:10` 兜底清理，仅扫描 `data/bilibili/tmp`、`downloads` 和 `cache.yaml`。
+预期 `cache_enable` 为 `false`、`delete_after_send` 为 `true`。插件启动约60秒后和每天 `04:20` 兜底清理，仅扫描 `data/bilibili/tmp`、`downloads` 和 `cache.yaml`。`04:20` 与攻略作者库的 `04:10` 刷新错峰。
 
 ### 4.9 B站视频或 ZIP 已生成，但发送时报“路径不存在”
 

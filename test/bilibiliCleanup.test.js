@@ -12,6 +12,7 @@ test("Bilibili defaults use disk-saving post-send cleanup", () => {
   assert.equal(config.download.cache_enable, false)
   assert.equal(config.cleanup.enable, true)
   assert.equal(config.cleanup.delete_after_send, true)
+  assert.equal(config.cleanup.cron, "0 20 4 * * ? *")
   assert.equal(normalizeDownloadConfig({}).cache_enable, false)
   assert.equal(normalizeDownloadConfig({ cache_enable: true }).cache_enable, true)
 })

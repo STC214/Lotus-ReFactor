@@ -780,7 +780,7 @@ export function normalizeCleanupConfig(config = {}) {
     enable: source.enable !== false,
     startup: source.startup !== false,
     delete_after_send: source.delete_after_send !== false,
-    cron: String(source.cron || "0 10 4 * * ? *"),
+    cron: String(source.cron || "0 20 4 * * ? *"),
     retention_days: Math.max(0, Number(source.retention_days ?? 1) || 0),
     tmp_retention_hours: Math.max(0, Number(source.tmp_retention_hours ?? 6) || 0),
     max_total_size_mb: Math.max(0, Number(source.max_total_size_mb ?? 1024) || 0),

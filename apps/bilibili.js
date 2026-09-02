@@ -37,7 +37,7 @@ export class LotusBilibili extends BasePlugin {
     this.task = [
       {
         name: "荷花插件B站下载清理",
-        cron: "0 10 4 * * ? *",
+        cron: "0 20 4 * * ? *",
         fnc: this.cleanupDownloads.bind(this),
         log: false,
       },
