@@ -36,6 +36,15 @@ function image(seed) {
   ])
 }
 
+async function waitUntil(predicate, { timeoutMs = 2000, intervalMs = 20 } = {}) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await predicate()) return
+    await new Promise(resolve => setTimeout(resolve, intervalMs))
+  }
+  throw new Error(`condition was not met within ${timeoutMs}ms`)
+}
+
 function createFetch(seedOffset = 0) {
   const counters = { fast: 0, slow: 0 }
   const fetchMock = async url => {
@@ -176,7 +185,10 @@ test("delayed cleanup always protects the newest manifest generation", async t =
     cleanupDelayMs: 40,
     random: () => 0,
   })
-  await new Promise(resolve => setTimeout(resolve, 90))
+  await waitUntil(async () => {
+    const entries = await fs.readdir(path.join(root, "generations"))
+    return entries.length === 1 && entries[0] === newest.manifest.generation
+  })
   assert.deepEqual(await fs.readdir(path.join(root, "generations")), [newest.manifest.generation])
   for (const file of newest.files) await fs.access(fileURLToPath(file))
 })

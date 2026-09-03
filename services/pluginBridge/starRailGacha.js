@@ -16,6 +16,8 @@ export class StarRailGachaDisplayBridge {
     this.loadGachaLog = options.loadGachaLog || loadGachaLog
     this.loadGcLogApp = options.loadGcLogApp || loadGcLogApp
     this.storageRoot = options.storageRoot || path.resolve(process.cwd(), "data", "srJson")
+    this.backupRoot = options.backupRoot || path.resolve(`${this.storageRoot}.backup`)
+    this.restoreBackupRoot = options.restoreBackupRoot || path.resolve(`${this.storageRoot}.pre-restore`)
   }
 
   async render({ e, uid, data, viewMessage = "#星铁角色记录" } = {}) {
@@ -57,12 +59,31 @@ export class StarRailGachaDisplayBridge {
     return directory
   }
 
-  async syncLegacy({ qq, uid, data } = {}) {
-    if (!qq || !uid) throw new Error("miao 星铁抽卡同步缺少 QQ 或 UID")
-    const root = path.resolve(this.storageRoot)
-    const directory = path.join(root, String(qq), String(uid))
-    await backupLegacyDirectory(root, directory, qq, uid)
-    return this.mirror({ qq, uid, data, storageRoot: root })
+  async restoreLegacyBackup({ qq, uid, confirm = false } = {}) {
+    if (!confirm) throw new Error("恢复操作缺少确认标记")
+    if (!qq || !uid) throw new Error("恢复星铁兼容数据缺少 QQ 或 UID")
+    const source = safeChild(this.backupRoot, qq, uid)
+    const target = safeChild(this.storageRoot, qq, uid)
+    await fs.access(source).catch(() => { throw new Error("没有找到可恢复的 srJson.backup 数据") })
+    const staged = safeChild(this.storageRoot, `.lotus-restore-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+    let safetyBackup = ""
+    try {
+      await fs.cp(source, staged, { recursive: true, errorOnExist: true })
+      try {
+        await fs.access(target)
+        safetyBackup = safeChild(this.restoreBackupRoot, new Date().toISOString().replace(/[:.]/g, "-"), qq, uid)
+        await fs.mkdir(path.dirname(safetyBackup), { recursive: true })
+        await fs.cp(target, safetyBackup, { recursive: true, errorOnExist: true })
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error
+      }
+      await fs.rm(target, { recursive: true, force: true })
+      await fs.mkdir(path.dirname(target), { recursive: true })
+      await fs.rename(staged, target)
+    } finally {
+      await fs.rm(staged, { recursive: true, force: true }).catch(() => {})
+    }
+    return { source, target, safetyBackup }
   }
 
   async cleanupRender(renderUserId) {
@@ -75,22 +96,11 @@ export class StarRailGachaDisplayBridge {
   }
 }
 
-async function backupLegacyDirectory(root, directory, qq, uid) {
-  try {
-    await fs.access(directory)
-  } catch {
-    return
-  }
-  const backupRoot = path.resolve(`${root}.backup`)
-  const backupDirectory = path.join(backupRoot, String(qq), String(uid))
-  try {
-    await fs.access(backupDirectory)
-    return
-  } catch {
-    // first-seen legacy data: preserve a cold copy before Lotus overwrites it
-  }
-  await fs.mkdir(path.dirname(backupDirectory), { recursive: true })
-  await fs.cp(directory, backupDirectory, { recursive: true, errorOnExist: false })
+function safeChild(root, ...segments) {
+  const resolvedRoot = path.resolve(root)
+  const target = path.resolve(resolvedRoot, ...segments.map(value => String(value)))
+  if (!target.startsWith(`${resolvedRoot}${path.sep}`)) throw new Error("恢复路径越界")
+  return target
 }
 
 export function buildMiaoPoolRecords(pool = {}, numericType, uid) {

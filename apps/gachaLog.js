@@ -12,7 +12,7 @@ import {
   PROFILE_ID_SUFFIX_PATTERN,
 } from "../core/config/profile.js"
 import { renderStatusCard } from "../core/render/service.js"
-import { replyImage, replyText } from "../core/transport/reply.js"
+import { replyForward, replyImage, replyText } from "../core/transport/reply.js"
 import {
   AuthKeyService,
   buildGachaLogUrl,
@@ -50,6 +50,10 @@ export class LotusGachaLog extends BasePlugin {
         {
           reg: `^#星铁更新抽卡记录${PROFILE_ID_SUFFIX_PATTERN}$`,
           fnc: "starRailGachaLog",
+        },
+        {
+          reg: `^#恢复星铁抽卡兼容数据${PROFILE_ID_SUFFIX_PATTERN}\\s+确认$`,
+          fnc: "restoreStarRailLegacy",
         },
         {
           reg: `^\\*(星铁)?(全部)?(抽卡|抽奖|角色|角色联动|光锥|光锥联动|常驻|新手|全部)池*(记录|祈愿|分析)${PROFILE_ID_SUFFIX_PATTERN}$`,
@@ -110,12 +114,6 @@ export class LotusGachaLog extends BasePlugin {
         await replyText(this, `[荷花插件]profile ${profileId} 没有同步星铁 UID。`)
         return true
       }
-      const canonical = await new StarRailGachaService().loadLog(userId, result.uid)
-      await new StarRailGachaDisplayBridge().syncLegacy({
-        qq: userId,
-        uid: result.uid,
-        data: canonical || result.data,
-      })
       const visiblePools = result.pools.filter(pool => pool.total || pool.totalDraws)
       const image = await renderStatusCard({
         title: "星铁抽卡记录",
@@ -152,6 +150,22 @@ export class LotusGachaLog extends BasePlugin {
         ],
       }, { saveId: `lotus-gacha-error-${userId}-${profileId}-sr` })
       await replyImage(this, image, `[荷花插件]星铁抽卡记录更新失败：${message}`)
+    }
+    return true
+  }
+
+  async restoreStarRailLegacy() {
+    const userId = String(this.e.user_id)
+    const profileId = parseProfileIdFromMessage(String(this.e.msg).replace(/\s+确认$/, ""))
+    try {
+      const profile = await loadProfile(userId, profileId)
+      const role = pickRole(profile, "sr")
+      if (!role) return replyText(this, `[荷花插件]profile ${profileId} 没有同步星铁 UID。`)
+      const uid = String(role.uid || role.game_uid)
+      const result = await new StarRailGachaDisplayBridge().restoreLegacyBackup({ qq: userId, uid, confirm: true })
+      await replyText(this, `[荷花插件]已恢复 profile ${profileId} 的星铁兼容抽卡数据；恢复前数据备份于 ${result.safetyBackup || "空目录"}。`)
+    } catch (error) {
+      await replyText(this, `[荷花插件]星铁兼容抽卡数据恢复失败：${error.message}`)
     }
     return true
   }
@@ -325,24 +339,10 @@ export class LotusGachaLog extends BasePlugin {
     const done = results.filter(item => item.ok).length
     const skipped = results.filter(item => item.skipped).length
     const failed = results.filter(item => !item.ok && !item.skipped).length
-    const image = await renderStatusCard({
-      title: "全部抽卡记录",
-      subtitle: `QQ ${userId}`,
-      badge: failed ? "部分失败" : "完成",
-      message: `完成 ${done} 项，跳过 ${skipped} 项，失败 ${failed} 项。`,
-      userId,
-      items: results.slice(0, 18).map(item => ({
-        label: `P${item.profileId} ${gameLabel(item.game)}`,
-        value: item.ok
-          ? `UID ${item.uid || "-"} · 完成`
-          : item.skipped
-            ? "未绑定 UID，跳过"
-            : `失败：${item.error || "未知错误"}`,
-      })),
-    }, {
-      saveId: `lotus-gacha-all-${userId}`,
+    const nodes = buildBatchGachaForward({ userId, profileIds, results, done, skipped, failed })
+    await replyForward(this, nodes, {
+      description: `全部抽卡记录：${profileIds.length} 个 Profile，失败 ${failed} 项`,
     })
-    await replyImage(this, image, "[荷花插件]全部抽卡记录更新完成。")
     return true
   }
 
@@ -458,8 +458,24 @@ function gameLabel(game) {
   return game || "-"
 }
 
+function formatBatchGachaResult(item = {}) {
+  if (item.ok) return `UID ${item.uid || "-"} · 完成`
+  if (item.skipped) return "未绑定 UID，跳过"
+  return `失败：${item.error || "未知错误"}`
+}
+
+export function buildBatchGachaForward({ userId, profileIds = [], results = [], done = 0, skipped = 0, failed = 0 } = {}) {
+  return [
+    `全部抽卡记录汇总\nQQ ${userId}\n完成 ${done} 项，跳过 ${skipped} 项，失败 ${failed} 项。`,
+    ...profileIds.map(profileId => {
+      const items = results.filter(item => item.profileId === profileId)
+      return [`Profile ${profileId}`, ...items.map(item => `${gameLabel(item.game)}：${formatBatchGachaResult(item)}`)].join("\n")
+    }),
+  ]
+}
+
 function viewMessageForStarRail(message = "") {
-  const text = String(message).replace(/\\d+$/, "")
+  const text = String(message).replace(/\d+$/, "")
   if (/全部/.test(text)) return "#星铁全部记录"
   if (/角色联动/.test(text)) return "#星铁角色联动记录"
   if (/光锥联动/.test(text)) return "#星铁光锥联动记录"

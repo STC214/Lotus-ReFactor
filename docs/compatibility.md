@@ -12,6 +12,8 @@ compatibility:
   captcha_priority_takeover: true
 ```
 
+抽卡与个人查询同样遵守此边界：带 Lotus profile 后缀的指令始终由 Lotus 处理；无后缀指令在 `false` 时交还原插件，在 `true` 时由 Lotus 按 profile 1 处理。星铁抽卡查看虽然复用 miao 的渲染模板，但只使用可自动清理的 `data/srJson/lotus-render-*` 临时数据，不会把 Lotus 的合成记录写入 miao 正式抽卡目录。
+
 此时插件只加载自己的应用，不会：
 
 - 向 Yunzai `config/config/group.yaml` 写入其他插件禁用项；

@@ -3,6 +3,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { resolveData } from "../../core/path.js"
 import { AccountService } from "../../core/login/account.js"
+import { inferServerFromUid, isCnServer, resolveServer } from "../../core/mihoyo/regions.js"
 
 export const STAR_RAIL_GACHA_TYPES = Object.freeze({
   GachaType_AvatarUp: "角色活动跃迁",
@@ -13,8 +14,32 @@ export const STAR_RAIL_GACHA_TYPES = Object.freeze({
   GachaType_Newbie: "新手跃迁",
 })
 
-const BADGE_LOGIN_URL = "https://api-takumi.mihoyo.com/common/badge/v1/login/account"
-const GACHA_API_ROOT = "https://act-api-takumi.mihoyo.com/event/rpg_gacha_record"
+const STAR_RAIL_GACHA_REQUESTS = Object.freeze({
+  cn: Object.freeze({
+    badgeLoginUrl: "https://api-takumi.mihoyo.com/common/badge/v1/login/account",
+    gachaApiRoot: "https://act-api-takumi.mihoyo.com/event/rpg_gacha_record",
+    gameBiz: "hkrpg_cn",
+    lang: "zh-cn",
+    origin: "https://act.mihoyo.com",
+    referer: "https://act.mihoyo.com/sr/event/gt-aio/gacha-records/index.html",
+  }),
+  global: Object.freeze({
+    badgeLoginUrl: "https://sg-act-public-api.hoyolab.com/common/badge/v1/login/account",
+    gachaApiRoot: "https://sg-act-public-api.hoyolab.com/event/rpg_gacha_record",
+    gameBiz: "hkrpg_global",
+    lang: "en-us",
+    origin: "https://act.hoyolab.com",
+    referer: "https://act.hoyolab.com/sr/event/gt-aio/gacha-records/index.html",
+  }),
+})
+const SUPPORTED_STAR_RAIL_REGIONS = new Set([
+  "prod_gf_cn",
+  "prod_qd_cn",
+  "prod_official_usa",
+  "prod_official_euro",
+  "prod_official_asia",
+  "prod_official_cht",
+])
 
 export class StarRailGachaService {
   constructor(options = {}) {
@@ -34,7 +59,7 @@ export class StarRailGachaService {
     if (!uid) throw new Error(`profile ${profileId} 没有同步星铁 UID`)
     if (!profile?.account?.cookie) throw new Error(`profile ${profileId} 缺少 cookie，无法更新星铁抽卡记录`)
 
-    const region = String(role.region || inferRegion(uid))
+    const region = resolveServer({ server: role.region, uid, game: "sr" }) || inferServerFromUid(uid, "sr")
     try {
       return await this.updateByCookie({ qq, profileId, uid, region, cookie: profile.account.cookie, device: profile.device })
     } catch (error) {
@@ -58,8 +83,9 @@ export class StarRailGachaService {
     if (!qq) throw new Error("qq is required")
     if (!uid || !region || !cookie) throw new Error("星铁 UID、region 和 cookie 均不能为空")
 
+    const request = resolveStarRailGachaRequest(region)
     const jar = new CookieJar(cookie)
-    await this.badgeLogin({ uid, region, jar })
+    await this.badgeLogin({ uid, region, jar, request })
     if (!jar.has("e_hkrpg_token")) throw new Error("星铁活动登录未返回 e_hkrpg_token")
 
     const context = {
@@ -67,6 +93,7 @@ export class StarRailGachaService {
       region: String(region),
       jar,
       deviceId: String(device?.id || crypto.randomUUID().replaceAll("-", "")),
+      request,
     }
     const brief = await this.requestGacha("brief", context)
     const previous = await this.loadLog(qq, uid)
@@ -132,18 +159,18 @@ export class StarRailGachaService {
     }
   }
 
-  async badgeLogin({ uid, region, jar }) {
-    await this.requestJson(BADGE_LOGIN_URL, {
+  async badgeLogin({ uid, region, jar, request = resolveStarRailGachaRequest(region) }) {
+    await this.requestJson(request.badgeLoginUrl, {
       method: "POST",
       headers: {
         Accept: "application/json, text/plain, */*",
         "Content-Type": "application/json",
         Cookie: jar.header(),
-        Origin: "https://act.mihoyo.com",
-        Referer: "https://act.mihoyo.com/",
+        Origin: request.origin,
+        Referer: request.referer,
         "User-Agent": "Mozilla/5.0 Lotus-StarRail-Gacha",
       },
-      body: JSON.stringify({ uid: String(uid), region: String(region), game_biz: "hkrpg_cn", lang: "zh-cn" }),
+      body: JSON.stringify({ uid: String(uid), region: String(region), game_biz: request.gameBiz, lang: request.lang }),
     }, jar)
   }
 
@@ -189,17 +216,17 @@ export class StarRailGachaService {
     const query = new URLSearchParams({
       badge_region: context.region,
       badge_uid: context.uid,
-      game_biz: "hkrpg_cn",
+      game_biz: context.request.gameBiz,
       region: context.region,
       uid: context.uid,
       ...extra,
     })
-    return this.requestJson(`${GACHA_API_ROOT}/${endpoint}?${query}`, {
+    return this.requestJson(`${context.request.gachaApiRoot}/${endpoint}?${query}`, {
       headers: {
         Accept: "application/json, text/plain, */*",
         Cookie: context.jar.header(),
-        Origin: "https://act.mihoyo.com",
-        Referer: "https://act.mihoyo.com/sr/event/gt-aio/gacha-records/index.html",
+        Origin: context.request.origin,
+        Referer: context.request.referer,
         "User-Agent": "Mozilla/5.0 Lotus-StarRail-Gacha",
         "x-rpc-device_id": context.deviceId,
         "x-rpc-jump_source": "wechatmp",
@@ -290,8 +317,12 @@ function pickRole(profile) {
   return roles.find(role => String(role.uid || role.game_uid || role) === current) || (current ? { uid: current } : roles[0])
 }
 
-function inferRegion(uid) {
-  return String(uid).startsWith("9") ? "prod_official_asia" : "prod_gf_cn"
+export function resolveStarRailGachaRequest(region = "") {
+  const normalized = String(region || "").trim().toLowerCase()
+  if (!SUPPORTED_STAR_RAIL_REGIONS.has(normalized)) {
+    throw new Error(`不支持的星铁区服：${region || "空"}`)
+  }
+  return isCnServer(normalized) ? STAR_RAIL_GACHA_REQUESTS.cn : STAR_RAIL_GACHA_REQUESTS.global
 }
 
 function normalizeLog(value, fallback = {}) {
