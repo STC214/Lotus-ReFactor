@@ -18,6 +18,7 @@ export class StarRailGachaDisplayBridge {
     this.storageRoot = options.storageRoot || path.resolve(process.cwd(), "data", "srJson")
     this.backupRoot = options.backupRoot || path.resolve(`${this.storageRoot}.backup`)
     this.restoreBackupRoot = options.restoreBackupRoot || path.resolve(`${this.storageRoot}.pre-restore`)
+    this.mkdir = options.mkdir || fs.mkdir
     this.rename = options.rename || fs.rename
   }
 
@@ -78,9 +79,9 @@ export class StarRailGachaDisplayBridge {
       } catch (error) {
         if (error?.code !== "ENOENT") throw error
       }
-      await fs.rm(target, { recursive: true, force: true })
-      await fs.mkdir(path.dirname(target), { recursive: true })
       try {
+        await fs.rm(target, { recursive: true, force: true })
+        await this.mkdir(path.dirname(target), { recursive: true })
         await this.rename(staged, target)
       } catch (error) {
         if (safetyBackup) {

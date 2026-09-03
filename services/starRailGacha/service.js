@@ -180,6 +180,7 @@ export class StarRailGachaService {
         Origin: request.origin,
         Referer: request.referer,
         "User-Agent": "Mozilla/5.0 Lotus-StarRail-Gacha",
+        "x-rpc-lang": request.lang,
       },
       body: JSON.stringify({ uid: String(uid), region: String(region), game_biz: request.gameBiz, lang: request.lang }),
     }, jar)

@@ -4,6 +4,7 @@ import test from "node:test"
 
 import { ProfileSigninService } from "../services/checkin/profileSignin.js"
 import { MihoyoBbsToolsRunner } from "../services/mihoyoBbsTools/runner.js"
+import { runLotusNonSigninTask } from "../core/coordination/signinPriority.js"
 
 const profile = {
   enabled: true,
@@ -38,6 +39,26 @@ test("audit storage failure does not overwrite a successful check-in outcome", a
   const outcome = await service.run({ profile, refresh: false, source: "scheduled" })
   assert.equal(outcome.ok, true)
   assert.equal(outcome.message, "signed")
+})
+
+test("manual profile sign-in uses the same priority gate as scheduled sign-in", async () => {
+  let releaseRender
+  const renderGate = new Promise(resolve => { releaseRender = resolve })
+  let runnerStarted = false
+  const currentRender = runLotusNonSigninTask(() => renderGate)
+  const service = new ProfileSigninService({
+    runner: { runProfile: async () => { runnerStarted = true; return { ok: true, message: "signed" } } },
+    render: false,
+    appendAudit: async () => {},
+  })
+  const signin = service.run({ profile, refresh: false, source: "manual" })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(runnerStarted, false)
+  releaseRender()
+  await currentRender
+  const outcome = await signin
+  assert.equal(runnerStarted, true)
+  assert.equal(outcome.ok, true)
 })
 
 test("runner timeout terminates the child and returns a typed error", async () => {

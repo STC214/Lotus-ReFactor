@@ -53,6 +53,7 @@ test("global badge and gacha requests carry matching region, game_biz and header
     game_biz: "hkrpg_global",
     lang: "en-us",
   })
+  assert.equal(calls[0].options.headers["x-rpc-lang"], "en-us")
   const gachaUrl = new URL(calls[1].url)
   assert.equal(gachaUrl.host, "sg-act-public-api.hoyolab.com")
   assert.equal(gachaUrl.searchParams.get("region"), region)

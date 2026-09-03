@@ -6,7 +6,6 @@ import { SchedulerService, dateString, nextDateString, normalizeSchedulerConfig,
 import { formatLocalIso } from "../../core/time.js"
 import { notifyProfile } from "../../core/transport/notify.js"
 import { ProfileSigninService, renderSigninFailure } from "./profileSignin.js"
-import { beginLotusSignin } from "../../core/coordination/signinPriority.js"
 
 const scheduleTasks = new Map()
 const planTasks = new Map()
@@ -327,7 +326,6 @@ export class ScheduledSigninService {
   }
 
   async runEntry(entry, options = {}) {
-    const releaseSigninPriority = beginLotusSignin()
     let profile = options.profile || await this.loadProfile(entry.qq, entry.profileId).catch(() => null)
     try {
       const captchaReporter = createCaptchaEventReporter({
@@ -406,8 +404,6 @@ export class ScheduledSigninService {
         image,
         message: error.message,
       }
-    } finally {
-      releaseSigninPriority()
     }
   }
 }

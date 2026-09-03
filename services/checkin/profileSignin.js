@@ -3,6 +3,7 @@ import { AccountService } from "../../core/login/account.js"
 import { renderTemplate } from "../../core/render/service.js"
 import { MihoyoBbsToolsRunner } from "../mihoyoBbsTools/runner.js"
 import { appendCheckinAudit } from "./audit.js"
+import { beginLotusSignin } from "../../core/coordination/signinPriority.js"
 
 export class ProfileSigninService {
   constructor(options = {}) {
@@ -15,6 +16,15 @@ export class ProfileSigninService {
   }
 
   async run({ qq, profileId = 1, profile, refresh = true, onCaptchaEvent, installRequirements = false, source = "manual", timeoutMs } = {}) {
+    const releaseSigninPriority = await beginLotusSignin()
+    try {
+      return await this.runWithPriority({ qq, profileId, profile, refresh, onCaptchaEvent, installRequirements, source, timeoutMs })
+    } finally {
+      releaseSigninPriority()
+    }
+  }
+
+  async runWithPriority({ qq, profileId = 1, profile, refresh = true, onCaptchaEvent, installRequirements = false, source = "manual", timeoutMs } = {}) {
     const userId = String(qq || profile?.user?.qq || "")
     const id = Number(profileId || profile?.profile?.id || 1)
     let activeProfile = profile || await loadProfile(userId, id)
