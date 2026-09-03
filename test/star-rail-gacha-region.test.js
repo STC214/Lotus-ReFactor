@@ -58,4 +58,118 @@ test("global badge and gacha requests carry matching region, game_biz and header
   assert.equal(gachaUrl.searchParams.get("region"), region)
   assert.equal(gachaUrl.searchParams.get("game_biz"), "hkrpg_global")
   assert.equal(calls[1].options.headers.Origin, "https://act.hoyolab.com")
+  assert.equal(calls[1].options.headers["x-rpc-lang"], "en-us")
+})
+
+test("profile update selects overseas cookie and language without CN refresh", async () => {
+  let refreshCalls = 0
+  const service = new StarRailGachaService({
+    accountService: { refresh: async () => { refreshCalls += 1 } },
+  })
+  let received
+  service.updateByCookie = async options => {
+    received = options
+    return { ok: true }
+  }
+  await service.updateByProfile({
+    qq: "100",
+    profileId: 6,
+    profile: {
+      account: {
+        cookie: "cn-cookie",
+        stoken: "cn-stoken",
+        game_roles: { sr: [{ uid: "700000001", region: "prod_official_euro" }] },
+        current_uid: { sr: "700000001" },
+      },
+      games: { os: { cookie: "global-cookie", lang: "zh_TW" } },
+      device: { id: "device" },
+    },
+  })
+  assert.equal(received.cookie, "global-cookie")
+  assert.equal(received.lang, "zh-tw")
+  assert.equal(received.region, "prod_official_euro")
+  assert.equal(refreshCalls, 0)
+})
+
+test("expired overseas cookie reports rebind and never invokes CN refresh", async () => {
+  let refreshCalls = 0
+  const service = new StarRailGachaService({
+    accountService: { refresh: async () => { refreshCalls += 1 } },
+  })
+  service.updateByCookie = async () => {
+    const error = new Error("login expired")
+    error.retcode = -100
+    throw error
+  }
+  await assert.rejects(() => service.updateByProfile({
+    qq: "100",
+    profileId: 255,
+    profile: {
+      account: {
+        cookie: "cn-cookie",
+        stoken: "cn-stoken",
+        game_roles: { sr: [{ uid: "900000001", region: "prod_official_cht" }] },
+        current_uid: { sr: "900000001" },
+      },
+      games: { os: { cookie: "expired-global-cookie", lang: "zh-cn" } },
+    },
+  }), /重新绑定国际服 cookie/)
+  assert.equal(refreshCalls, 0)
+})
+
+test("overseas profile never falls back to an available CN cookie", async () => {
+  const service = new StarRailGachaService()
+  await assert.rejects(() => service.updateByProfile({
+    qq: "100",
+    profileId: 1,
+    profile: {
+      account: {
+        cookie: "cn-cookie-must-not-be-used",
+        game_roles: { sr: [{ uid: "600000001", region: "prod_official_usa" }] },
+        current_uid: { sr: "600000001" },
+      },
+      games: { os: { cookie: "", lang: "en-us" } },
+    },
+  }), /缺少国际服 cookie/)
+})
+
+test("CN profile keeps account cookie and refreshes it through AccountService", async () => {
+  let refreshCalls = 0
+  const service = new StarRailGachaService({
+    accountService: {
+      refresh: async () => {
+        refreshCalls += 1
+        return { account: { cookie: "refreshed-cn-cookie" }, device: { id: "refreshed-device" } }
+      },
+    },
+  })
+  const calls = []
+  service.updateByCookie = async options => {
+    calls.push(options)
+    if (calls.length === 1) {
+      const error = new Error("cookie expired")
+      error.retcode = -100
+      throw error
+    }
+    return { ok: true }
+  }
+  const result = await service.updateByProfile({
+    qq: "100",
+    profileId: 2,
+    profile: {
+      account: {
+        cookie: "old-cn-cookie",
+        stoken: "cn-stoken",
+        game_roles: { sr: [{ uid: "100000001", region: "prod_gf_cn" }] },
+        current_uid: { sr: "100000001" },
+      },
+      games: { os: { cookie: "global-cookie", lang: "en-us" } },
+      device: { id: "old-device" },
+    },
+  })
+  assert.equal(calls[0].cookie, "old-cn-cookie")
+  assert.equal(calls[1].cookie, "refreshed-cn-cookie")
+  assert.equal(calls[1].lang, "zh-cn")
+  assert.equal(refreshCalls, 1)
+  assert.equal(result.refreshedCookie, true)
 })

@@ -339,10 +339,7 @@ export class LotusGachaLog extends BasePlugin {
     const done = results.filter(item => item.ok).length
     const skipped = results.filter(item => item.skipped).length
     const failed = results.filter(item => !item.ok && !item.skipped).length
-    const nodes = buildBatchGachaForward({ userId, profileIds, results, done, skipped, failed })
-    await replyForward(this, nodes, {
-      description: `全部抽卡记录：${profileIds.length} 个 Profile，失败 ${failed} 项`,
-    })
+    await replyBatchGachaForward(this, { userId, profileIds, results, done, skipped, failed })
     return true
   }
 
@@ -472,6 +469,13 @@ export function buildBatchGachaForward({ userId, profileIds = [], results = [], 
       return [`Profile ${profileId}`, ...items.map(item => `${gameLabel(item.game)}：${formatBatchGachaResult(item)}`)].join("\n")
     }),
   ]
+}
+
+export function replyBatchGachaForward(target, summary = {}) {
+  const nodes = buildBatchGachaForward(summary)
+  return replyForward(target, nodes, {
+    description: `全部抽卡记录：${summary.profileIds?.length || 0} 个 Profile，失败 ${summary.failed || 0} 项`,
+  })
 }
 
 function viewMessageForStarRail(message = "") {

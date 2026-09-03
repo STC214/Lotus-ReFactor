@@ -38,3 +38,29 @@ test("legacy restore requires confirmation and backs up current data before repl
     assert.equal(await fs.readFile(path.join(result.safetyBackup, "11.json"), "utf8"), "current")
   } finally { await fs.rm(root, { recursive: true, force: true }) }
 })
+
+test("legacy restore puts the current directory back when the final rename fails", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "lotus-gacha-restore-failure-"))
+  const storageRoot = path.join(root, "srJson")
+  const backupRoot = path.join(root, "srJson.backup")
+  const restoreBackupRoot = path.join(root, "srJson.pre-restore")
+  const target = path.join(storageRoot, "1", "100000001")
+  const source = path.join(backupRoot, "1", "100000001")
+  await fs.mkdir(target, { recursive: true }); await fs.writeFile(path.join(target, "11.json"), "current")
+  await fs.mkdir(source, { recursive: true }); await fs.writeFile(path.join(source, "11.json"), "original")
+  const bridge = new StarRailGachaDisplayBridge({
+    storageRoot,
+    backupRoot,
+    restoreBackupRoot,
+    rename: async () => { throw new Error("injected rename failure") },
+  })
+  try {
+    await assert.rejects(
+      () => bridge.restoreLegacyBackup({ qq: "1", uid: "100000001", confirm: true }),
+      /已从安全备份恢复原目录/,
+    )
+    assert.equal(await fs.readFile(path.join(target, "11.json"), "utf8"), "current")
+    assert.equal(await fs.readFile(path.join(source, "11.json"), "utf8"), "original")
+    assert.equal((await fs.readdir(storageRoot)).some(name => name.startsWith(".lotus-restore-")), false)
+  } finally { await fs.rm(root, { recursive: true, force: true }) }
+})

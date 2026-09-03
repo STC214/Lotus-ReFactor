@@ -158,6 +158,8 @@ profile 后缀默认支持 `1..255`。没有后缀时使用 profile 1；例如 `
 
 `#更新全部抽卡记录` 会完整遍历全部 profile，并用合并转发按“一条 profile 一个节点”反馈原神、星铁、绝区零结果。带 profile 后缀的查看指令由 Lotus 处理；无后缀查看指令默认保留给原插件，只有开启“接管冲突功能”后才由 Lotus 按 profile 1 处理。星铁正式数据保存在 `data/starRailGachaJson`，渲染不会改写 miao 的 `data/srJson`。
 
+国际服星铁抽卡使用 `#绑定国际服cookie[profile] <cookie>` 保存的凭据以及对应国际服语言；国服仍使用扫码登录产生的账号 Cookie。两套凭据不会交叉使用。
+
 ## 队伍伤害-原神
 
 - `#队伍伤害 神鹤万心`

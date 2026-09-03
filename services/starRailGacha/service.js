@@ -57,12 +57,22 @@ export class StarRailGachaService {
     const role = pickRole(profile)
     const uid = String(role?.uid || role?.game_uid || "")
     if (!uid) throw new Error(`profile ${profileId} 没有同步星铁 UID`)
-    if (!profile?.account?.cookie) throw new Error(`profile ${profileId} 缺少 cookie，无法更新星铁抽卡记录`)
 
     const region = resolveServer({ server: role.region, uid, game: "sr" }) || inferServerFromUid(uid, "sr")
+    const overseas = !isCnServer(region)
+    const cookie = String(overseas ? profile?.games?.os?.cookie || "" : profile?.account?.cookie || "").trim()
+    const lang = overseas ? normalizeLanguage(profile?.games?.os?.lang, "en-us") : "zh-cn"
+    if (!cookie) {
+      throw new Error(overseas
+        ? `profile ${profileId} 缺少国际服 cookie，请先绑定国际服 cookie`
+        : `profile ${profileId} 缺少国服 cookie，无法更新星铁抽卡记录`)
+    }
     try {
-      return await this.updateByCookie({ qq, profileId, uid, region, cookie: profile.account.cookie, device: profile.device })
+      return await this.updateByCookie({ qq, profileId, uid, region, cookie, device: profile.device, lang })
     } catch (error) {
+      if (overseas && isLoginExpired(error)) {
+        throw new Error(`profile ${profileId} 国际服 cookie 已失效，请重新绑定国际服 cookie`, { cause: error })
+      }
       if (!isLoginExpired(error) || !profile?.account?.stoken) throw error
       const refreshed = await this.accountService.refresh(qq, profileId)
       return {
@@ -73,17 +83,18 @@ export class StarRailGachaService {
           region,
           cookie: refreshed.account?.cookie,
           device: refreshed.device,
+          lang,
         }),
         refreshedCookie: true,
       }
     }
   }
 
-  async updateByCookie({ qq, profileId = 1, uid, region, cookie, device = {} } = {}) {
+  async updateByCookie({ qq, profileId = 1, uid, region, cookie, device = {}, lang = "" } = {}) {
     if (!qq) throw new Error("qq is required")
     if (!uid || !region || !cookie) throw new Error("星铁 UID、region 和 cookie 均不能为空")
 
-    const request = resolveStarRailGachaRequest(region)
+    const request = resolveStarRailGachaRequest(region, lang)
     const jar = new CookieJar(cookie)
     await this.badgeLogin({ uid, region, jar, request })
     if (!jar.has("e_hkrpg_token")) throw new Error("星铁活动登录未返回 e_hkrpg_token")
@@ -230,6 +241,7 @@ export class StarRailGachaService {
         "User-Agent": "Mozilla/5.0 Lotus-StarRail-Gacha",
         "x-rpc-device_id": context.deviceId,
         "x-rpc-jump_source": "wechatmp",
+        "x-rpc-lang": context.request.lang,
         "x-rpc-platform": "4",
       },
     }, context.jar)
@@ -317,12 +329,21 @@ function pickRole(profile) {
   return roles.find(role => String(role.uid || role.game_uid || role) === current) || (current ? { uid: current } : roles[0])
 }
 
-export function resolveStarRailGachaRequest(region = "") {
+export function resolveStarRailGachaRequest(region = "", lang = "") {
   const normalized = String(region || "").trim().toLowerCase()
   if (!SUPPORTED_STAR_RAIL_REGIONS.has(normalized)) {
     throw new Error(`不支持的星铁区服：${region || "空"}`)
   }
-  return isCnServer(normalized) ? STAR_RAIL_GACHA_REQUESTS.cn : STAR_RAIL_GACHA_REQUESTS.global
+  const base = isCnServer(normalized) ? STAR_RAIL_GACHA_REQUESTS.cn : STAR_RAIL_GACHA_REQUESTS.global
+  return {
+    ...base,
+    lang: normalizeLanguage(lang, base.lang),
+  }
+}
+
+function normalizeLanguage(value, fallback) {
+  const normalized = String(value || "").trim().toLowerCase().replaceAll("_", "-")
+  return /^[a-z]{2,3}(?:-[a-z]{2,4})?$/.test(normalized) ? normalized : fallback
 }
 
 function normalizeLog(value, fallback = {}) {

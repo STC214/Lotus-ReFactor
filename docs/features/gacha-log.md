@@ -9,7 +9,7 @@
 - 绝区零优先使用 CK 直刷；只有获取或刷新抽卡链接时才生成 `authkey`。
 - 星铁记录以官方稳定记录 ID 增量合并；重复更新不会重复叠加，活动 token 和 Cookie 不落盘。
 - 星铁接口不提供完整三星、四星明细；Lotus 保存五星、累计已抽和当前垫抽，数据位于 `data/starRailGachaJson/<qq>/<uid>.json`。
-- 星铁会按 UID/角色区服选择请求族：国服使用 `hkrpg_cn` 与米游社接口；美服、欧服、亚服、港澳台服使用 `hkrpg_global` 与 HoYoLAB 接口。
+- 星铁会按 UID/角色区服选择请求族：国服使用 `account.cookie`、`hkrpg_cn` 与米游社接口；美服、欧服、亚服、港澳台服使用 `games.os.cookie`、`games.os.lang`、`hkrpg_global` 与 HoYoLAB 接口。国际服 Cookie 失效时会要求重新绑定，不会误调用国服刷新流程。
 - `data/starRailGachaJson` 是 Lotus 的唯一正式星铁抽卡数据源。借用 miao 模板渲染时只创建 `data/srJson/lotus-render-*` 临时目录，并在成功或失败后清理，不覆盖 miao 自己的 `data/srJson/<QQ>/<UID>` 抽卡记录。
 - 缓存和数据路径都按 profile 对应的游戏 UID 区分。
 - `更新全部抽卡记录` 会遍历当前用户全部可用 profile，依次处理原神、星铁和绝区零；最终以合并转发返回，一条 profile 对应一个节点，不再截断第 6 个之后的 profile。
@@ -58,7 +58,7 @@
 #恢复星铁抽卡兼容数据4 确认
 ```
 
-恢复采用三步保护：先完整复制冷备到临时目录，再把当前 `data/srJson/<QQ>/<UID>` 保存到带时间戳的 `data/srJson.pre-restore/`，最后切换目标目录。没有 `确认`、没有对应备份或路径校验失败时均不会替换。日常更新与查看不需要执行此命令。
+恢复采用三步保护：先完整复制冷备到临时目录，再把当前 `data/srJson/<QQ>/<UID>` 保存到带时间戳的 `data/srJson.pre-restore/`，最后切换目标目录。最终切换失败时会立即从安全备份恢复原目录；若连自动恢复也失败，错误信息会给出仍然保留的安全备份路径。没有 `确认`、没有对应备份或路径校验失败时均不会替换。日常更新与查看不需要执行此命令。
 
 ## 验证要点
 
@@ -66,3 +66,4 @@
 2. 执行星铁查看指令后，`data/srJson` 下不应残留 `lotus-render-*`。
 3. 国际服 profile 的日志应显示对应 `prod_official_usa/euro/asia/cht`，请求使用 `hkrpg_global`。
 4. 建立 7 个以上 profile 后执行 `#更新全部抽卡记录`，转发结果应包含每个 profile 的三游戏状态。
+5. 合并转发不可用时会完整逐条发送相同节点，不会丢弃失败原因。

@@ -18,6 +18,7 @@ export class StarRailGachaDisplayBridge {
     this.storageRoot = options.storageRoot || path.resolve(process.cwd(), "data", "srJson")
     this.backupRoot = options.backupRoot || path.resolve(`${this.storageRoot}.backup`)
     this.restoreBackupRoot = options.restoreBackupRoot || path.resolve(`${this.storageRoot}.pre-restore`)
+    this.rename = options.rename || fs.rename
   }
 
   async render({ e, uid, data, viewMessage = "#星铁角色记录" } = {}) {
@@ -79,7 +80,27 @@ export class StarRailGachaDisplayBridge {
       }
       await fs.rm(target, { recursive: true, force: true })
       await fs.mkdir(path.dirname(target), { recursive: true })
-      await fs.rename(staged, target)
+      try {
+        await this.rename(staged, target)
+      } catch (error) {
+        if (safetyBackup) {
+          try {
+            await fs.rm(target, { recursive: true, force: true })
+            await fs.cp(safetyBackup, target, { recursive: true, errorOnExist: true })
+          } catch (rollbackError) {
+            throw new AggregateError(
+              [error, rollbackError],
+              `星铁兼容数据切换失败，且恢复原目录失败；安全备份保留于 ${safetyBackup}`,
+            )
+          }
+        }
+        throw new Error(
+          safetyBackup
+            ? `星铁兼容数据切换失败，已从安全备份恢复原目录：${error.message}`
+            : `星铁兼容数据切换失败，原目录此前不存在：${error.message}`,
+          { cause: error },
+        )
+      }
     } finally {
       await fs.rm(staged, { recursive: true, force: true }).catch(() => {})
     }
