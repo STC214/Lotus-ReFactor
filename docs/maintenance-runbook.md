@@ -47,7 +47,7 @@ docker inspect -f '{{.State.Status}} {{.State.Health.Status}}' llbot
 - 源码、示例配置和文档可同步。
 - `data/`、`config/global.yaml`、profile 配置、Cookie、设备信息、验证码结果和登录态属于运行数据，不得用本地空目录覆盖。
 - 替换插件前先备份运行数据；优先原地更新源码，不要无条件删除整个插件目录。
-- 默认共存模式不接管其他插件；只有明确启用 `compatibility.conflict_takeover` 时才调整冲突入口。
+- 固定共存模式：重叠用户命令中 Lotus 永远低于 Yunzai、miao-plugin 和其他插件；旧 `compatibility.conflict_takeover` 值会被忽略。每次合并、升级和部署前必须完成[优先级检查清单](command-priority-policy.md)。
 
 ## 2. 从已有 Yunzai 安装完整荷花插件
 

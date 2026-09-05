@@ -1,4 +1,12 @@
-export const LOTUS_INTERCEPT_PRIORITY = Number.NEGATIVE_INFINITY
+// Yunzai executes lower numeric priorities first. Ordinary Lotus commands are
+// deliberately registered last so an overlapping command owned by Yunzai,
+// miao-plugin, or another plugin always gets the first chance to handle it.
+export const LOTUS_INTERCEPT_PRIORITY = Number.POSITIVE_INFINITY
+
+// Captcha routing is an internal error-handler chain rather than a user-facing
+// query command. Keep its independent priority so automatic captcha solving can
+// run before compatible fallback handlers without changing command ownership.
+export const LOTUS_CAPTCHA_HANDLER_PRIORITY = Number.NEGATIVE_INFINITY
 
 export const LOTUS_CONFIG_DISABLED_PLUGIN_NAMES = Object.freeze([
   // TRSS-Plugin overlaps
@@ -96,14 +104,4 @@ export const LOTUS_CONFIG_DISABLED_PLUGIN_NAMES = Object.freeze([
   "[Yuki-Plugin] bilibili",
 ])
 
-export const LOTUS_RUNTIME_DISABLED_PLUGIN_NAMES = LOTUS_CONFIG_DISABLED_PLUGIN_NAMES
-
 export const LOTUS_CAPTCHA_HANDLER_NAMESPACE = "Lotus-Plugin"
-
-export const LEGACY_CAPTCHA_HANDLER_NAMESPACES = Object.freeze([
-  "loveMys",
-  "@小新枝",
-  "genshin",
-  "bujidao",
-  "ji-plugin",
-])

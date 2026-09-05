@@ -8,7 +8,7 @@ test("explicit profile suffix is always handled by Lotus", () => {
   assert.equal(shouldTakeoverProfileQuery({ hasProfileSuffix: true }, { compatibility: { conflict_takeover: false } }), true)
 })
 
-test("unsuffixed query follows conflict_takeover", () => {
+test("unsuffixed query always yields to other plugins", () => {
   assert.equal(shouldTakeoverProfileQuery({ hasProfileSuffix: false }, { compatibility: { conflict_takeover: false } }), false)
-  assert.equal(shouldTakeoverProfileQuery({ hasProfileSuffix: false }, { compatibility: { conflict_takeover: true } }), true)
+  assert.equal(shouldTakeoverProfileQuery({ hasProfileSuffix: false }, { compatibility: { conflict_takeover: true } }), false)
 })

@@ -1,5 +1,7 @@
 const BasePlugin = globalThis.plugin
 
+import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
+
 import { loadGlobalConfig } from "../core/config/global.js"
 import { PermissionService } from "../core/permissions/service.js"
 import { renderStatusCard } from "../core/render/service.js"
@@ -12,7 +14,7 @@ export class LotusTools extends BasePlugin {
       name: "[Lotus-Plugin] Tools",
       dsc: "Lotus runtime tool installer",
       event: "message",
-      priority: 10,
+      priority: LOTUS_INTERCEPT_PRIORITY,
       rule: [
         {
           reg: "^#初始化工具环境$",

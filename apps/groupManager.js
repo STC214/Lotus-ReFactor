@@ -1,5 +1,7 @@
 const BasePlugin = globalThis.plugin
 
+import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
+
 import { loadGlobalConfig } from "../core/config/global.js"
 import { PermissionService } from "../core/permissions/service.js"
 import { renderStatusCard } from "../core/render/service.js"
@@ -17,7 +19,7 @@ export class LotusGroupManager extends BasePlugin {
       name: "[Lotus-Plugin] Group Manager",
       dsc: "Lotus group member export",
       event: "message",
-      priority: 20,
+      priority: LOTUS_INTERCEPT_PRIORITY,
       rule: [
         {
           reg: "^#(?:Lotus|荷花)?群成员\\s*(\\d*)$",

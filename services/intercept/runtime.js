@@ -11,11 +11,10 @@ import { isCookieRefreshableResponse } from "../../core/captcha/mysHandler.js"
 import { loadGlobalConfig } from "../../core/config/global.js"
 
 import {
-  LEGACY_CAPTCHA_HANDLER_NAMESPACES,
+  LOTUS_CAPTCHA_HANDLER_PRIORITY,
   LOTUS_CONFIG_DISABLED_PLUGIN_NAMES,
   LOTUS_CAPTCHA_HANDLER_NAMESPACE,
   LOTUS_INTERCEPT_PRIORITY,
-  LOTUS_RUNTIME_DISABLED_PLUGIN_NAMES,
 } from "../../core/intercept/priority.js"
 
 const IMAGE_SUMMARY_RELEASE_URL = "https://api.github.com/repos/palemoky/chinese-poetry-api/releases/latest"
@@ -26,29 +25,34 @@ const IMAGE_SUMMARY_LINE_LIMIT = 4096
 const IMAGE_SUMMARY_RETRY_MS = 5 * 60 * 1000
 
 let runtimeInstalled = false
-let handlerPatchInstalled = false
+let runtimeInstallPromise = null
+let runtimeRetryScheduled = false
 let imageSummaryLines = []
 let imageSummaryPreparing = null
 let imageSummaryNextPrepareAt = 0
 
 export async function installLotusRuntimeInterception(options = {}) {
   if (runtimeInstalled) return { ok: true, already: true }
+  if (runtimeInstallPromise) return runtimeInstallPromise
 
+  runtimeInstallPromise = performRuntimeInterceptionInstall(options)
+  try {
+    return await runtimeInstallPromise
+  } finally {
+    runtimeInstallPromise = null
+  }
+}
+
+async function performRuntimeInterceptionInstall(options = {}) {
   const config = options.config || await loadGlobalConfig()
-  runtimeInstalled = true
-  const conflictTakeover = config.compatibility?.conflict_takeover === true
-
-  const conflictTasks = conflictTakeover
-    ? [
-        ensureYunzaiConflictDisableConfig(),
-        patchRuntimeDisableConfig(),
-        patchPluginsLoader(),
-      ]
-    : [
-        cleanupLegacyYunzaiConflictDisableConfig(),
-        Promise.resolve({ ok: true, skipped: true, reason: "conflict_takeover_disabled" }),
-        Promise.resolve({ ok: true, skipped: true, reason: "conflict_takeover_disabled" }),
-      ]
+  // conflict_takeover is retained only as a readable legacy configuration
+  // field. Command ownership is no longer configurable: Lotus is always the
+  // fallback for overlapping user-facing commands.
+  const legacyConflictTakeoverIgnored = config.compatibility?.conflict_takeover === true
+  const conflictTasks = [
+    cleanupLegacyYunzaiConflictDisableConfig(),
+    patchPluginsLoader(options.loader),
+  ]
 
   const results = await Promise.allSettled([
     ...conflictTasks,
@@ -56,51 +60,48 @@ export async function installLotusRuntimeInterception(options = {}) {
     installGlobalImageSummary(),
   ])
 
+  const ok = results.every(item => item.status === "fulfilled" && item.value?.ok !== false)
+  runtimeInstalled = ok
+  if (!ok) scheduleRuntimeInterceptionRetry(options)
+
   return {
-    ok: results.every(item => item.status === "fulfilled" && item.value?.ok !== false),
-    conflictTakeover,
+    ok,
+    conflictTakeover: false,
+    legacyConflictTakeoverIgnored,
     results,
   }
 }
 
+function scheduleRuntimeInterceptionRetry(options = {}) {
+  if (runtimeRetryScheduled) return
+  runtimeRetryScheduled = true
+  const delays = [1000, 5000, 15000]
+
+  delays.forEach((delay, index) => {
+    setTimeout(async () => {
+      await installLotusRuntimeInterception(options).catch(error => {
+        logDebug(`runtime interception retry failed: ${error?.message || error}`)
+      })
+      if (index === delays.length - 1) runtimeRetryScheduled = false
+    }, delay).unref?.()
+  })
+
+  globalThis.Bot?.once?.("online", () => {
+    void installLotusRuntimeInterception(options).catch(error => {
+      logDebug(`runtime interception online retry failed: ${error?.message || error}`)
+    })
+  })
+}
+
 export async function installLotusCaptchaHandlerOverride(handlerModule = null, options = {}) {
   const config = options.config || await loadGlobalConfig()
-  const conflictTakeover = config.compatibility?.conflict_takeover === true
-  const captchaPriorityTakeover = conflictTakeover
-    || config.compatibility?.captcha_priority_takeover === true
+  const captchaPriorityTakeover = config.compatibility?.captcha_priority_takeover === true
   if (!captchaPriorityTakeover) {
     return { ok: true, skipped: true, reason: "captcha_priority_takeover_disabled" }
   }
   const Handler = handlerModule || await importYunzaiDefault("../../../../lib/plugins/handler.js")
   if (!Handler?.add || !Handler?.del) {
     return { ok: false, reason: "handler module unavailable" }
-  }
-
-  if (conflictTakeover && !handlerPatchInstalled) {
-    const originalAdd = Handler.add.bind(Handler)
-    Handler.add = cfg => {
-      const key = cfg?.key || cfg?.event
-      if (key === "mys.req.err") {
-        if (LEGACY_CAPTCHA_HANDLER_NAMESPACES.includes(cfg?.ns)) {
-          logDebug(`skip legacy captcha handler ${cfg.ns}`)
-          return
-        }
-        if (cfg?.ns === LOTUS_CAPTCHA_HANDLER_NAMESPACE) {
-          return originalAdd({
-            ...cfg,
-            priority: LOTUS_INTERCEPT_PRIORITY,
-          })
-        }
-      }
-      return originalAdd(cfg)
-    }
-    handlerPatchInstalled = true
-  }
-
-  if (conflictTakeover) {
-    for (const ns of LEGACY_CAPTCHA_HANDLER_NAMESPACES) {
-      Handler.del(ns, "mys.req.err")
-    }
   }
 
   const registration = options.registration
@@ -110,15 +111,15 @@ export async function installLotusCaptchaHandlerOverride(handlerModule = null, o
       key: "mys.req.err",
       self: registration.self,
       fn: registration.fn,
-      priority: LOTUS_INTERCEPT_PRIORITY,
+      priority: LOTUS_CAPTCHA_HANDLER_PRIORITY,
     })
   }
 
   return {
     ok: true,
-    conflictTakeover,
+    conflictTakeover: false,
     captchaPriorityTakeover: true,
-    fallbackHandlersPreserved: !conflictTakeover,
+    fallbackHandlersPreserved: true,
   }
 }
 
@@ -176,87 +177,13 @@ export async function installGlobalImageSummary() {
     : { ok: true, skipped: true, reason: "segment.image unavailable" }
 }
 
-export async function ensureYunzaiConflictDisableConfig(options = {}) {
-  const file = options.file || path.join(process.cwd(), "config", "config", "group.yaml")
-  const disabledNames = options.disabledNames || LOTUS_CONFIG_DISABLED_PLUGIN_NAMES
-
-  try {
-    let config = {}
-    try {
-      config = YAML.parse(await fs.readFile(file, "utf8")) || {}
-    } catch (error) {
-      if (error?.code !== "ENOENT") throw error
-    }
-
-    if (!isPlainObject(config)) config = {}
-    if (!isPlainObject(config.default)) config.default = {}
-
-    const currentDisable = Array.isArray(config.default.disable)
-      ? config.default.disable
-      : config.default.disable
-        ? [config.default.disable]
-        : []
-
-    const nextDisable = unique([
-      ...currentDisable,
-      ...disabledNames,
-    ])
-    const added = nextDisable.filter(name => !currentDisable.includes(name))
-    const changed = added.length > 0 || !Array.isArray(config.default.disable)
-
-    if (changed) {
-      config.default.disable = nextDisable
-      await fs.mkdir(path.dirname(file), { recursive: true })
-      await fs.writeFile(file, YAML.stringify(config), "utf8")
-      clearYunzaiCfgCache(options.cfg)
-      logInfo(`已写入冲突功能禁用配置：${added.join("、") || "格式修正"}`)
-    }
-
-    return {
-      ok: true,
-      file,
-      changed,
-      added,
-      disabled: nextDisable,
-    }
-  } catch (error) {
-    logWarn(`写入冲突功能禁用配置失败：${error?.message || error}`)
-    return {
-      ok: false,
-      file,
-      reason: error?.message || String(error),
-    }
+export async function patchPluginsLoader(loaderOverride) {
+  const loader = loaderOverride === undefined
+    ? await importYunzaiDefault("../../../../lib/plugins/loader.js")
+    : loaderOverride
+  if (!Array.isArray(loader?.priority)) {
+    return { ok: false, retryable: true, reason: "loader priority unavailable" }
   }
-}
-
-async function patchRuntimeDisableConfig() {
-  const cfg = await importYunzaiDefault("../../../../lib/config/config.js")
-  if (!cfg?.getGroup || cfg.__lotusDisablePatch) {
-    return { ok: true, skipped: true }
-  }
-
-  await ensureYunzaiConflictDisableConfig({ cfg })
-
-  const originalGetGroup = cfg.getGroup.bind(cfg)
-  cfg.getGroup = (...args) => {
-    const group = originalGetGroup(...args) || {}
-    const disable = Array.isArray(group.disable) ? group.disable : []
-    return {
-      ...group,
-      disable: unique([
-        ...disable,
-        ...LOTUS_RUNTIME_DISABLED_PLUGIN_NAMES,
-      ]),
-    }
-  }
-  cfg.__lotusDisablePatch = true
-  logDebug("runtime disable config patched")
-  return { ok: true }
-}
-
-async function patchPluginsLoader() {
-  const loader = await importYunzaiDefault("../../../../lib/plugins/loader.js")
-  if (!loader?.priority) return { ok: true, skipped: true }
 
   if (!loader.__lotusInterceptPatch) {
     patchLoaderMethod(loader, "load")
@@ -726,10 +653,16 @@ export function enforceLotusInterception(loader) {
   loader.priority = loader.priority
     .map((entry, index) => ({ entry, index }))
     .sort((a, b) => {
-      const diff = numericPriority(a.entry.priority) - numericPriority(b.entry.priority)
-      if (diff) return diff
-      if (isLotusEntry(a.entry) && !isLotusEntry(b.entry)) return -1
-      if (!isLotusEntry(a.entry) && isLotusEntry(b.entry)) return 1
+      const aPriority = isLotusEntry(a.entry)
+        ? LOTUS_INTERCEPT_PRIORITY
+        : numericPriority(a.entry.priority)
+      const bPriority = isLotusEntry(b.entry)
+        ? LOTUS_INTERCEPT_PRIORITY
+        : numericPriority(b.entry.priority)
+      if (aPriority < bPriority) return -1
+      if (aPriority > bPriority) return 1
+      if (isLotusEntry(a.entry) && !isLotusEntry(b.entry)) return 1
+      if (!isLotusEntry(a.entry) && isLotusEntry(b.entry)) return -1
       return a.index - b.index
     })
     .map(item => item.entry)

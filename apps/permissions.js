@@ -1,5 +1,7 @@
 const BasePlugin = globalThis.plugin
 
+import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
+
 import { loadGlobalConfig, saveGlobalConfig } from "../core/config/global.js"
 import { PermissionService } from "../core/permissions/service.js"
 import {
@@ -17,7 +19,7 @@ export class LotusPermissions extends BasePlugin {
       name: "[Lotus-Plugin] Permissions",
       dsc: "Lotus scope permission manager",
       event: "message",
-      priority: 20,
+      priority: LOTUS_INTERCEPT_PRIORITY,
       rule: [
         {
           reg: "^#权限(列表|名单|配置)$",

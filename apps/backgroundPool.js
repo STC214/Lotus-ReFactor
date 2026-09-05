@@ -1,5 +1,7 @@
 const BasePlugin = globalThis.plugin
 
+import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
+
 import { loadGlobalConfig } from "../core/config/global.js"
 import { BackgroundRefreshRetryService } from "../services/render/backgroundRetry.js"
 
@@ -9,7 +11,7 @@ export class LotusBackgroundPool extends BasePlugin {
       name: "[Lotus-Plugin] Background Pool",
       dsc: "Lotus local render background refresh",
       event: "message",
-      priority: 20,
+      priority: LOTUS_INTERCEPT_PRIORITY,
       rule: [],
     })
     this.task = [{

@@ -47,7 +47,7 @@
 ## 与其他插件共存
 
 - 带 profile 后缀的查询（例如 `*星铁角色记录4`）明确由 Lotus 处理。
-- 不带 profile 后缀的个人查询遵循全局 `compatibility.conflict_takeover`：默认 `false` 时交给原有插件；设为 `true` 时由 Lotus 按 profile 1 处理。
+- 不带 profile 后缀的重叠个人查询始终交给其他插件优先处理；历史 `compatibility.conflict_takeover` 值不会改变这一规则。
 - 批量更新指令 `#更新全部抽卡记录` 属于 Lotus 独立指令，不受上述开关影响。
 
 ## 历史兼容数据恢复

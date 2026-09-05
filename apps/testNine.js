@@ -1,5 +1,7 @@
 const BasePlugin = globalThis.plugin
 
+import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
+
 import { loadGlobalConfig } from "../core/config/global.js"
 import { PermissionService } from "../core/permissions/service.js"
 import { renderStatusCard } from "../core/render/service.js"
@@ -12,7 +14,7 @@ export class LotusTestNine extends BasePlugin {
       name: "[Lotus-Plugin] TestNine",
       dsc: "Lotus test_nine local service manager",
       event: "message",
-      priority: 10,
+      priority: LOTUS_INTERCEPT_PRIORITY,
       rule: [
         { reg: "^#启动testnine服务$", fnc: "start" },
         { reg: "^#停止testnine服务$", fnc: "stop" },

@@ -389,7 +389,7 @@ https://github.com/MOPELotus/Lotus-ReFactor
 git submodule update --init --recursive
 ```
 
-## 默认共存与可选接管
+## 固定共存与末位兜底
 
 插件默认配置为：
 
@@ -398,17 +398,9 @@ compatibility:
   conflict_takeover: false
 ```
 
-默认不会写入其他插件禁用项，也不会删除其他验证码 handler，因此可以先和已有插件一起安装、逐项核对命令。需要 Lotus 统一处理冲突入口时，可在锅巴的“兼容模式”中开启“接管冲突功能”，或者修改上述配置为 `true` 后重启 Yunzai。
+Lotus 不会写入其他插件禁用项，也不会删除其他验证码 handler。查询、面板、体力、图鉴、攻略、抽卡记录、签到和媒体解析等重叠用户命令始终由其他插件先处理，Lotus 仅作末位兜底。历史配置即使写成 `conflict_takeover: true` 也不会改变普通命令归属；锅巴不再显示该旧开关。
 
-接管模式可能覆盖以下功能入口：
-
-- 逍遥插件的登录、图鉴、抽卡 authkey 相关入口。
-- TRSS-Plugin 的米哈游登录入口。
-- loveMys 的全局验证码 handler。
-- device-plugin 的全局设备注入逻辑。
-- 小花火、rconsole 等插件里的 B站解析入口。
-
-荷花插件不会直接修改这些插件的源码。接管模式会维护 Yunzai/TRSS 的 `config/config/group.yaml` 禁用项、调整处理优先级并替换已知旧验证码 handler。升级时对旧列表采用保守迁移，详细规则见 [兼容与接管模式](compatibility.md)。
+验证码错误处理链由 `captcha_priority_takeover` 独立控制，默认先尝试 Lotus 自动过码，失败后仍保留其他 handler。完整边界及升级检查见[兼容与命令优先级](compatibility.md)和[重叠命令优先级原则](command-priority-policy.md)。
 
 ## TRSS-Yunzai 容器建议
 

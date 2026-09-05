@@ -1,5 +1,7 @@
 const BasePlugin = globalThis.plugin
 
+import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
+
 import { loadGlobalConfig } from "../core/config/global.js"
 import {
   listAllProfiles,
@@ -24,7 +26,7 @@ export class LotusCheckinAdmin extends BasePlugin {
       name: "[Lotus-Plugin] Checkin Admin",
       dsc: "Lotus checkin list, logs and batch refresh",
       event: "message",
-      priority: 20,
+      priority: LOTUS_INTERCEPT_PRIORITY,
       rule: [
         { reg: "^#签到名单列表$", fnc: "listProfiles" },
         { reg: "^#自动签到日志$", fnc: "checkinLogs" },

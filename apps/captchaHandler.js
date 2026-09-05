@@ -1,6 +1,7 @@
 const BasePlugin = globalThis.plugin
 
 import {
+  LOTUS_CAPTCHA_HANDLER_PRIORITY,
   LOTUS_CAPTCHA_HANDLER_NAMESPACE,
   LOTUS_INTERCEPT_PRIORITY,
 } from "../core/intercept/priority.js"
@@ -20,7 +21,7 @@ export class LotusCaptchaHandler extends BasePlugin {
         {
           key: "mys.req.err",
           fn: "mysReqErrHandler",
-          priority: LOTUS_INTERCEPT_PRIORITY,
+          priority: LOTUS_CAPTCHA_HANDLER_PRIORITY,
         },
       ],
     })

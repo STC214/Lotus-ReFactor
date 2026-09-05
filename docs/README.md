@@ -11,7 +11,8 @@
 - [荷花插件安装与故障处置运行手册（维护代理专用）](maintenance-runbook.md)
 - [安装与部署](installation.md)
 - [LLBot 部署、升级与大文件发送](llbot.md)
-- [兼容与接管模式](compatibility.md)
+- [兼容与命令优先级](compatibility.md)
+- [重叠命令优先级原则与升级检查清单](command-priority-policy.md)
 - [Guoba 设置页完整使用手册](guoba-settings.md)
 - [初始化](initialization.md)
   - [工具链-BBDown/ffmpeg/aria2](features/tools.md)
@@ -62,7 +63,7 @@
 - [小功能索引](features/README.md)
 - [致谢与引用](references.md)
 
-插件默认采用共存模式，不写入其他插件的禁用项。只有显式开启“接管冲突功能”后，才会替代部分登录、验证码、体力、图鉴和 B 站解析入口。
+插件固定采用共存模式，不写入其他插件的禁用项。查询、面板等重叠用户命令始终由其他插件先处理，Lotus 只作末位兜底；该原则必须在每次合并和升级时复核。
 
 使用中遇到问题，欢迎加入荷花的小群 `702211431` 反馈。
 

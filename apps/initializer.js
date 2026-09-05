@@ -1,5 +1,7 @@
 const BasePlugin = globalThis.plugin
 
+import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
+
 import { loadGlobalConfig } from "../core/config/global.js"
 import { PermissionService } from "../core/permissions/service.js"
 import { renderStatusCard } from "../core/render/service.js"
@@ -19,7 +21,7 @@ export class LotusInitializer extends BasePlugin {
       name: "[Lotus-Plugin] Initializer",
       dsc: "One-command full Lotus initialization",
       event: "message",
-      priority: 1,
+      priority: LOTUS_INTERCEPT_PRIORITY,
       rule: [{ reg: "^#初始化荷花$", fnc: "initializeLotus" }],
     })
   }

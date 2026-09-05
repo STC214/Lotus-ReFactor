@@ -1,5 +1,7 @@
 const BasePlugin = globalThis.plugin
 
+import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
+
 import { loadGlobalConfig, saveGlobalConfig } from "../core/config/global.js"
 import { listProfileIds, loadProfile } from "../core/config/profile.js"
 import { PermissionService } from "../core/permissions/service.js"
@@ -19,7 +21,7 @@ export class LotusScheduler extends BasePlugin {
       name: "[Lotus-Plugin] Scheduler",
       dsc: "Lotus checkin schedule plan",
       event: "message",
-      priority: 20,
+      priority: LOTUS_INTERCEPT_PRIORITY,
       rule: [
         { reg: "^#生成签到计划$", fnc: "generatePlan" },
         { reg: "^#我的签到时间$", fnc: "myPlan" },

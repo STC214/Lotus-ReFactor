@@ -1,5 +1,7 @@
 const BasePlugin = globalThis.plugin
 
+import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
+
 import { renderTemplate } from "../core/render/service.js"
 import { replyImage } from "../core/transport/reply.js"
 import { HELP_DOCUMENT_URL, loadHelpCommandSections } from "../services/help/commands.js"
@@ -10,7 +12,7 @@ export class LotusHelp extends BasePlugin {
       name: "[Lotus-Plugin] Help",
       dsc: "Lotus command help",
       event: "message",
-      priority: 20,
+      priority: LOTUS_INTERCEPT_PRIORITY,
       rule: [
         { reg: "^#?(Lotus|lotus|荷花)(帮助|help)$", fnc: "help" },
         { reg: "^#自动签到帮助$", fnc: "help" },

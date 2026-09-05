@@ -1,5 +1,7 @@
 const BasePlugin = globalThis.plugin
 
+import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
+
 import {
   isProfileLoginRequiredError,
   listProfileIds,
@@ -17,7 +19,7 @@ export class LotusProfile extends BasePlugin {
       name: "[Lotus-Plugin] Profile",
       dsc: "Lotus profile card",
       event: "message",
-      priority: 20,
+      priority: LOTUS_INTERCEPT_PRIORITY,
       rule: [
         {
           reg: `^#(Lotus|荷花)?(配置|资料|资料卡|我的配置)${PROFILE_ID_SUFFIX_PATTERN}$`,

@@ -1,5 +1,7 @@
 const BasePlugin = globalThis.plugin
 
+import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
+
 import { renderStatusCard, renderTemplate } from "../core/render/service.js"
 import { loadGlobalConfig } from "../core/config/global.js"
 import { PermissionService } from "../core/permissions/service.js"
@@ -19,7 +21,7 @@ export class LotusRemote extends BasePlugin {
       name: "[Lotus-Plugin] Remote",
       dsc: "Lotus guarded remote spawn",
       event: "message",
-      priority: 1,
+      priority: LOTUS_INTERCEPT_PRIORITY,
       rule: [
         {
           reg: "^#远程(2FA|OTP)(初始化|重置|绑定)$",

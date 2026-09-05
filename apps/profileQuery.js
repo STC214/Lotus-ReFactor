@@ -16,8 +16,8 @@ import { MiaoProfileQueryBridge } from "../services/pluginBridge/miaoProfileQuer
 import { ZzzProfileQueryBridge } from "../services/pluginBridge/zzzPanel.js"
 import { StarRailChallengeService } from "../services/starRailChallenge/service.js"
 
-// 路由先匹配显式 Profile 与无后缀形式；处理阶段再依据 conflict_takeover 决定
-// 无后缀命令是否交还后续插件。无后缀分支要求命令不以数字结尾。
+// 路由先匹配显式 Profile 与无后缀形式；无后缀命令始终交还其他插件。
+// 无后缀分支要求命令不以数字结尾。
 const P = `(?:(?:${PROFILE_ID_REQUIRED_SUFFIX_PATTERN})|(?<!\\d))`
 const Z = "(?:[%％]|#绝区零)"
 const SR_CHALLENGE_WORDS = "(?:深渊|忘却|忘却之庭|混沌|混沌回忆|虚构|虚构叙事|末日|末日幻影|异乡|异相|异向|仲裁|异相仲裁)"
@@ -210,7 +210,7 @@ export class LotusProfileQuery extends BasePlugin {
 }
 
 export function shouldTakeoverProfileQuery(parsed = {}, config = {}) {
-  return parsed.hasProfileSuffix === true || config.compatibility?.conflict_takeover === true
+  return parsed.hasProfileSuffix === true
 }
 
 async function refreshProfileBeforeQuery(userId, profileId, profile) {

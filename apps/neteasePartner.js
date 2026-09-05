@@ -1,5 +1,7 @@
 const BasePlugin = globalThis.plugin
 
+import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
+
 import { loadGlobalConfig } from "../core/config/global.js"
 import { PermissionService } from "../core/permissions/service.js"
 import { renderStatusCard, renderTemplate } from "../core/render/service.js"
@@ -14,7 +16,7 @@ export class LotusNeteasePartner extends BasePlugin {
       name: "[Lotus-Plugin] Netease Partner",
       dsc: "Lotus netease music partner",
       event: "message",
-      priority: 20,
+      priority: LOTUS_INTERCEPT_PRIORITY,
       rule: [
         { reg: "^#合伙人测试$", fnc: "manualTest" },
         { reg: "^#合伙人登录$", fnc: "partnerLogin" },

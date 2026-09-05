@@ -1,5 +1,7 @@
 const BasePlugin = globalThis.plugin
 
+import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
+
 import { renderStatusCard } from "../core/render/service.js"
 import { replyImage } from "../core/transport/reply.js"
 
@@ -9,7 +11,7 @@ export class LotusDonate extends BasePlugin {
       name: "[Lotus-Plugin] Donate",
       dsc: "Lotus donate card",
       event: "message",
-      priority: 200,
+      priority: LOTUS_INTERCEPT_PRIORITY,
       rule: [
         {
           reg: "^(#)?(荷花)?(捐赠|donate|Donate)$",

@@ -50,4 +50,4 @@ https://gt.lotusshared.cn/GTest/register?key=114514
 - challenge 已被使用，正在重新请求 challenge。
 - 全部方案失败，生成手动过码链接。
 
-JS 业务和 Python 签到 runner 使用同一套 provider 链。全局 `mys.req.err` handler 仅在“接管冲突功能”开启时替换旧 handler；默认共存模式不会删除其他插件的 handler。
+JS 业务和 Python 签到 runner 使用同一套 provider 链。全局 `mys.req.err` handler 由独立的“验证码优先路由”开关控制；开启时 Lotus 先尝试处理，但始终保留其他插件的 handler 作为后续兜底。该 handler 不改变查询、面板等用户命令的固定末位原则。

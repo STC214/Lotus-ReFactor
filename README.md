@@ -1,4 +1,4 @@
-> 默认使用共存模式，不会禁用其他插件。需要由 Lotus 接管冲突功能时，可在锅巴中显式开启；详见 [兼容与接管模式](docs/compatibility.md)。
+> 固定使用共存模式：任何重叠用户命令都由 Yunzai、miao-plugin 或其他插件优先处理，Lotus 永远处于末位兜底。每次合并和升级必须执行[重叠命令优先级检查](docs/command-priority-policy.md)。
 
 # Lotus-Plugin ReFactor
 
