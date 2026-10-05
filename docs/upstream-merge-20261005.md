@@ -12,7 +12,9 @@
 
 媒体任务置于既有 LLBot 挂载内：B站 `data/bilibili/downloads/tasks/bilibili/`，抖音 `data/bilibili/downloads/tasks/douyin/`。发送结束后清理独立任务；旧启动/04:20 清理继续整理历史文件，跳过整个 `downloads/tasks/`。保留旧清理字段，迁移不丢弃管理员配置。新任务不使用历史下载缓存。
 
-恢复没有系统 zip 时的 Python 打包回退；ZIP 测试使用标准库检查目录与 CRC，兼容 BusyBox。合并后的 `sharp` 使用 `^0.35.5`，修复上游带入的依赖告警，pnpm 锁文件同步更新。
+Unix 优先通过 Python 打包，正确设置中文 ZIP 文件名的 UTF-8 标志；BusyBox zip 仅作为纯 ASCII 文件名的回退。ZIP 测试使用标准库检查目录与 CRC。合并后的 `sharp` 使用 `^0.35.5`，修复上游带入的依赖告警，pnpm 锁文件同步更新。
+
+生产启动审查发现上游通知逻辑会把缺失的管理员配置转成字符串 `undefined`；已过滤空值和非数字账号并去重，新增回归测试。重启时框架自身的自动 pnpm 安装将 `compression` 从 1.8.1 升至 1.8.2，旧框架补丁造成语法错误；部署环境的 `pnpm-workspace.yaml` 增加 `overrides.compression: 1.8.1`，保留其原有补丁及构建白名单。此环境修复独立保存于维护记录，不混入插件依赖。
 
 ## 验证入口
 

@@ -262,11 +262,14 @@ async function notifySubmoduleUpdates(updates, config = {}) {
   }
 }
 
-function collectMasterIds(config = {}) {
+export function collectMasterIds(config = {}) {
   const values = [config.masterQQ, config.master, config.master_qq, config.masters]
   const runtime = globalThis.Bot?.config || globalThis.Bot?.cfg || {}
   values.push(runtime.masterQQ, runtime.master, runtime.master_qq)
-  return [...new Set(values.flatMap(value => Array.isArray(value) ? value : [value]).map(String).filter(Boolean))]
+  return [...new Set(values.flatMap(value => Array.isArray(value) ? value : [value])
+    .filter(value => value != null)
+    .map(value => String(value).trim())
+    .filter(value => /^[1-9]\d*$/.test(value)))]
 }
 
 function pathJoin(base, child) {

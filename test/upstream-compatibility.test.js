@@ -9,6 +9,19 @@ import { encodeGpuCanvas } from "../core/render/gpu-buffer.js"
 import { renderWithSkia, usesForkBackgroundLayout } from "../core/render/skia.js"
 import { BilibiliService } from "../services/bilibili/service.js"
 import { DouyinService } from "../services/douyin/service.js"
+import { collectMasterIds } from "../services/pluginUpdate/service.js"
+
+test("submodule notices omit missing or malformed master IDs and deduplicate real IDs", () => {
+  const previous = globalThis.Bot
+  try {
+    globalThis.Bot = { config: {} }
+    assert.deepEqual(collectMasterIds(), [])
+    globalThis.Bot = { config: { masterQQ: [123456, null, "", "undefined"] } }
+    assert.deepEqual(collectMasterIds({ masters: [" 123456 ", "234567", undefined, "null", "abc"] }), ["123456", "234567"])
+  } finally {
+    globalThis.Bot = previous
+  }
+})
 
 test("CPU card encoding keeps exact dimensions without requiring a physical GPU", async () => {
   const canvas = new Canvas(100, 60)
