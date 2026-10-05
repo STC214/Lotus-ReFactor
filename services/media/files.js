@@ -80,20 +80,20 @@ export async function packMediaFiles(files, target, options = {}) {
     await runMediaProcess("powershell.exe", ["-NoProfile", "-Command",
       `Compress-Archive -LiteralPath ${files.map(quote).join(",")} -DestinationPath ${quote(target)}`], options)
   } else {
-    try {
-      await runMediaProcess("zip", ["-j", target, ...files], options)
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error
-      const script = "import os,sys,zipfile;z=zipfile.ZipFile(sys.argv[1],'w',zipfile.ZIP_DEFLATED);[z.write(f,os.path.basename(f)) for f in sys.argv[2:]];z.close()"
-      for (const python of ["python3", "python"]) {
-        try {
-          await runMediaProcess(python, ["-c", script, target, ...files], options)
-          return target
-        } catch (fallbackError) {
-          if (fallbackError.code !== "ENOENT" || python === "python") throw fallbackError
-        }
+    // BusyBox zip omits the UTF-8 filename flag. Prefer Python's portable ZIP headers.
+    const script = "import os,sys,zipfile;z=zipfile.ZipFile(sys.argv[1],'w',zipfile.ZIP_DEFLATED);[z.write(f,os.path.basename(f)) for f in sys.argv[2:]];z.close()"
+    for (const python of ["python3", "python"]) {
+      try {
+        await runMediaProcess(python, ["-c", script, target, ...files], options)
+        return target
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error
       }
     }
+    if (files.some(file => /[^\x00-\x7f]/.test(path.basename(file)))) {
+      throw new Error("Python is required to preserve Unicode ZIP filenames")
+    }
+    await runMediaProcess("zip", ["-j", target, ...files], options)
   }
   return target
 }
