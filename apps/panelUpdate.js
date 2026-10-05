@@ -20,7 +20,7 @@ import { getRoleUid, importRuntimeModule, pickRole } from "../services/pluginBri
 import { parsePanelUidIndex, resolveEventUidByIndex } from "../services/pluginBridge/uidIndex.js"
 
 export class LotusPanelUpdate extends BasePlugin {
-  constructor() {
+  constructor(options = {}) {
     super({
       name: "[Lotus-Plugin] Panel Update",
       dsc: "Lotus profile aware miao panel update",
@@ -52,7 +52,7 @@ export class LotusPanelUpdate extends BasePlugin {
           fnc: "zzzPanel",
         },
         {
-          reg: `^[%％](更新面板|面板更新|全部面板更新|更新全部面板)${PROFILE_ID_SUFFIX_PATTERN}$`,
+          reg: `^(?:[%％](?:zzz|ZZZ|绝区零)?|[#/](?:zzz|ZZZ|绝区零)|(?:zzz|ZZZ|绝区零))(更新面板|面板更新|全部面板更新|更新全部面板)${PROFILE_ID_SUFFIX_PATTERN}$`,
           fnc: "zzzPanel",
         },
         {
@@ -61,6 +61,9 @@ export class LotusPanelUpdate extends BasePlugin {
         },
       ],
     })
+    this.loadPanelProfile = options.loadProfile || loadProfile
+    this.refreshPanelProfile = options.refreshProfile || refreshProfileBeforePanel
+    this.panelBridge = options.panelBridge || panelBridgeForGame
   }
 
   async genshinPanel() {
@@ -128,12 +131,12 @@ export class LotusPanelUpdate extends BasePlugin {
           return true
         }
       }
-      const loadedProfile = await loadProfile(userId, profileId)
       if (game === "zzz") {
-        await replyText(this, "[荷花插件]正在更新绝区零面板，请稍候。")
+        await replyText(this, `[荷花插件]已收到指令，正在更新绝区零面板（Profile ${profileId}），出图需要一些时间，请稍候。`)
       }
-      const profile = await refreshProfileBeforePanel(userId, profileId, loadedProfile)
-      const result = await panelBridgeForGame(game).updatePanel({
+      const loadedProfile = await this.loadPanelProfile(userId, profileId)
+      const profile = await this.refreshPanelProfile(userId, profileId, loadedProfile)
+      const result = await this.panelBridge(game).updatePanel({
         e: this.e,
         profile,
         profileId,
@@ -141,7 +144,9 @@ export class LotusPanelUpdate extends BasePlugin {
         forwardReplies: true,
       })
 
-      if (!result.forwarded.length) {
+      const hasImage = result.forwarded.length > 0
+        || result.messages.some(message => String(message).includes("[图片]"))
+      if (!hasImage) {
         const message = pickMessage(result.messages) || "面板更新已执行，但外部插件没有返回图片。"
         await replyText(this, `[荷花插件]${message}`)
       }

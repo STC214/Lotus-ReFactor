@@ -1,7 +1,10 @@
 import { registerProfileWithGenshin } from "../genshinBridge/profile.js"
+import path from "node:path"
+import { renderTemplate } from "../../core/render/service.js"
+import { pathToFileURL } from "node:url"
 import { resolveServer } from "../../core/mihoyo/regions.js"
 import { parseAccountCookie } from "../../core/mihoyo/cookies.js"
-import { createIsolatedEvent, getRoleUid, importRuntimeModule, pickRole } from "./common.js"
+import { createIsolatedEvent, getRoleUid, importRuntimeModule, pickRole, shouldForwardReply } from "./common.js"
 
 export class ZzzPanelBridge {
   constructor(options = {}) {
@@ -27,17 +30,23 @@ export class ZzzPanelBridge {
     })
     const { instance: panel, event, messages, forwarded, uid } = context
 
-    await runZzzPanelRefresh(panel, {
+    const rendered = await runZzzPanelRefresh(panel, {
       uid,
       refreshPanelFunction: (await this.loadAvatarModule()).refreshPanel,
     })
+    if (!forwarded.length && shouldForwardReply(rendered)) {
+      await event.reply(rendered)
+    }
+    const renderedImage = rendered?.rendered === true || shouldForwardReply(rendered)
     return {
       ok: true,
       game: "zzz",
       uid,
       profileId,
       messages: messages.filter(Boolean),
-      forwarded,
+      forwarded: renderedImage && !forwarded.length
+        ? [...forwarded, "[图片]"]
+        : forwarded,
     }
   }
 
@@ -59,6 +68,7 @@ export class ZzzPanelBridge {
 export class ZzzProfileQueryBridge {
   constructor(options = {}) {
     this.loadPanelClass = options.loadPanelClass || loadPanelClass
+    this.loadAvatarModule = options.loadAvatarModule || loadAvatarModule
     this.loadDamageClass = options.loadDamageClass || (() => loadZzzAppClass("damage.js", "Damage"))
     this.loadCardClass = options.loadCardClass || (() => loadZzzAppClass("card.js", "Card"))
     this.loadAbyssClass = options.loadAbyssClass || (() => loadZzzAppClass("abyss.js", "Abyss"))
@@ -71,6 +81,8 @@ export class ZzzProfileQueryBridge {
     this.loadMysApiClass = options.loadMysApiClass || loadMysApiClass
     this.registerProfile = options.registerProfile || registerProfileWithGenshin
     this.syncDevice = options.syncDevice || syncZzzDeviceWithRedis
+    this.loadRankModule = options.loadRankModule || loadRankModule
+    this.renderRank = options.renderRank || renderTemplate
   }
 
   async panel(options = {}) {
@@ -127,6 +139,60 @@ export class ZzzProfileQueryBridge {
     return this.run({ ...options, PluginClass: await this.loadExplorationDetailClass(), method: "explorationDetail" })
   }
 
+  async groupRank({ e, profile, profileId = 1, command, mode = "weighted", character, forwardReplies = true } = {}) {
+    if (!e?.group_id) return { ok: false, messages: ["请在群聊中使用该命令。"], forwarded: [] }
+    const avatar = await this.loadAvatarModule()
+    const rank = await this.loadRankModule()
+    const ownUid = getRoleUid(pickRole(profile, "zzz"))
+    if (ownUid && rank.setUidAndQQ) await rank.setUidAndQQ(String(e.group_id), ownUid, String(e.user_id))
+    const uid2qqs = await rank.getUid2QQsMapping(String(e.group_id))
+    const members = await e.group?.getMemberMap?.() || new Map()
+    const memberIds = new Set(
+      (members instanceof Map ? [...members.keys()] : Object.keys(members || {})).map(String),
+    )
+    const rows = []
+    for (const [uid, qqs] of Object.entries(uid2qqs || {})) {
+      const qq = qqs.find(id => memberIds.has(String(id)))
+      if (!qq) continue
+      const item = avatar.getPanel?.(uid, character)
+      if (!item) continue
+      await item.get_small_basic_assets?.()
+      if (item.weapon?.get_assets) await item.weapon.get_assets().catch(() => {})
+      item.uid = String(uid)
+      const rankValue = mode === "weighted" ? weightedScore(item) : Number(item.equip_score || 0)
+      item.score_label = mode === "weighted" ? "加权分" : "面板分"
+      item.score_value = rankValue.toFixed(2)
+      item._rankValue = rankValue
+      rows.push(item)
+    }
+    rows.sort((a, b) => b._rankValue - a._rankValue)
+    const panel = new (await this.loadPanelClass())()
+    const context = await createZzzProfilePluginInstance({ PluginClass: panel.constructor, e, profile, profileId, command, forwardReplies, registerProfile: this.registerProfile, syncDevice: this.syncDevice, loadMysApiClass: this.loadMysApiClass })
+    context.instance.e = context.event
+    context.instance.reply = context.event.reply.bind(context.event)
+    const image = await this.renderRank("zzz-rank", {
+      title: `${character}${mode === "weighted" ? "综合榜" : "排名"}`,
+      character,
+      list: rows.map(item => ({
+        name: item.name_mi18n || item.name || character,
+        uid: item.uid,
+        icon: item.small_square_icon,
+        level: item.level,
+        rank: item.rank,
+        score_label: item.score_label,
+        score_value: item.score_value,
+        skills: item.skills,
+        weapon: item.weapon ? {
+          name: item.weapon.name, icon: item.weapon.square_icon,
+          level: item.weapon.level, star: item.weapon.star,
+        } : null,
+      })),
+    })
+    await context.event.reply(image)
+    if (!forwardReplies) context.forwarded.push("[图片]")
+    return { ok: true, uid: "", profileId, messages: context.messages, forwarded: context.forwarded }
+  }
+
   async run({ e, profile, profileId = 1, command, forwardReplies = true, PluginClass, method } = {}) {
     const context = await createZzzProfilePluginInstance({
       PluginClass,
@@ -141,7 +207,11 @@ export class ZzzProfileQueryBridge {
     })
     const fn = context.instance?.[method]
     if (typeof fn !== "function") throw new Error(`ZZZ-Plugin ${method} 不可用`)
-    await fn.call(context.instance)
+    const returned = await fn.call(context.instance)
+    if (!context.forwarded.length && shouldForwardReply(returned)) {
+      await context.event.reply(returned)
+      if (!forwardReplies) context.forwarded.push("[图片]")
+    }
     return {
       ok: true,
       game: "zzz",
@@ -181,12 +251,39 @@ export async function createZzzProfilePluginInstance({ PluginClass, e, profile, 
     forwardReplies,
   })
 
+  await ensureRuntimeRender(event)
+
   const instance = new PluginClass()
   instance.e = event
   instance.reply = event.reply.bind(event)
   instance.getUID = async () => uid
   instance.getLtuid = async () => profile.account?.ltuid || profile.account?.stuid || parseAccountCookie(profile.account?.cookie).ltuid
   instance.getAPI = async () => createZzzApiContext({ uid, profile, event, loadMysApiClass: loadMysApiClassImpl })
+
+  // ZZZ 角色面板查询通过运行时 handler 调用 getCharPanelTool。
+  // Lotus 隔离实例未必经过 ZZZ loader 注册工具，因此补一个仅作用于本次事件的 fallback。
+  const runtime = event.runtime || {}
+  const handler = runtime.handler || {}
+  const originalHas = typeof handler.has === "function" ? handler.has.bind(handler) : () => false
+  const originalCall = typeof handler.call === "function" ? handler.call.bind(handler) : async () => false
+  // 保留 Runtime 原型方法（尤其是 render）。直接对象展开会丢失原型方法，
+  // 上游面板随后调用 e.runtime.render() 就会变成 “不是函数”。
+  const scopedRuntime = runtime && typeof runtime === "object"
+    ? Object.create(Object.getPrototypeOf(runtime))
+    : {}
+  Object.assign(scopedRuntime, runtime)
+  scopedRuntime.e = event
+  scopedRuntime.handler = {
+    ...handler,
+    has: key => key === "zzz.tool.panel" || originalHas(key),
+    call: async (key, targetEvent, payload) => {
+      if (key === "zzz.tool.panel" && typeof instance.getCharPanelTool === "function") {
+        return instance.getCharPanelTool(targetEvent, payload)
+      }
+      return originalCall(key, targetEvent, payload)
+    },
+  }
+  event.runtime = scopedRuntime
 
   return {
     instance,
@@ -195,6 +292,23 @@ export async function createZzzProfilePluginInstance({ PluginClass, e, profile, 
     forwarded,
     uid,
   }
+}
+
+async function ensureRuntimeRender(event) {
+  if (typeof event?.runtime?.render === "function") return event.runtime
+  try {
+    const file = path.join(process.cwd(), "lib", "plugins", "runtime.js")
+    const mod = await import(pathToFileURL(file).href)
+    const Runtime = mod.default || mod.Runtime
+    if (typeof Runtime === "function") {
+      const runtime = new Runtime(event)
+      event.runtime = runtime
+      return runtime
+    }
+  } catch (error) {
+    globalThis.logger?.debug?.(`[Lotus-Plugin] ZZZ runtime render init skipped: ${error.message}`)
+  }
+  return event.runtime
 }
 
 async function loadPanelClass() {
@@ -217,6 +331,23 @@ async function loadAvatarModule() {
     }
     return importRuntimeModule("ZZZ-Plugin", "lib", "avatar.js")
   }
+}
+
+async function loadRankModule() {
+  return importRuntimeModule("ZZZ-Plugin", "dist", "lib", "rank.js")
+}
+
+function weightedScore(item) {
+  const drive = Number(item.equip_score || 0)
+  const weapon = item.weapon
+  if (!weapon) return drive
+  const rarity = weapon.rarity === "S" ? 10 : weapon.rarity === "A" ? 4 : 0
+  const level = Math.floor(Number(weapon.level || 0) / 10)
+  const refine = Math.max(0, Number(weapon.star || 1) - 1)
+  const profession = weapon.profession && item.avatar_profession && weapon.profession === item.avatar_profession ? 6 : 0
+  const suits = new Set((item.equip || []).flatMap(equip => Array.isArray(equip.equip_suit) ? equip.equip_suit.map(s => s.suit_id || s.id) : []))
+  const suitBonus = Math.min(3, suits.size) * 2
+  return drive + rarity + level + refine + profession + suitBonus
 }
 
 async function loadMysApiClass() {
@@ -288,7 +419,10 @@ async function runZzzPanelRefresh(panel, { uid, refreshPanelFunction } = {}) {
     newChar: newChar.length,
     list: result,
   }
-  if (typeof panel.render === "function") return panel.render("panel/refresh.html", finalData)
+  if (typeof panel.render === "function") {
+    await panel.render("panel/refresh.html", finalData)
+    return { rendered: true }
+  }
   return panel.reply({ type: "image", file: "zzz-panel.png" })
 }
 

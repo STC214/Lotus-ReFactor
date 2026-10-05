@@ -6,6 +6,8 @@ import QRCode from "qrcode"
 import YAML from "yaml"
 import { resolveData, rootPath } from "../../core/path.js"
 import { formatLocalIso } from "../../core/time.js"
+import { createMediaTask, releaseMediaTask, recoverMediaTasks } from "../media/tasks.js"
+import { packMediaFiles, runMediaProcess, mediaLimitFailure, safeMediaName } from "../media/files.js"
 
 const NAV_API = "https://api.bilibili.com/x/web-interface/nav"
 const QR_GENERATE_API = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate"
@@ -42,6 +44,9 @@ export class BilibiliService {
     this.cacheFile = options.cacheFile || resolveData("bilibili", "cache.yaml")
     this.tmpDir = options.tmpDir || resolveData("bilibili", "tmp")
     this.outputDir = options.outputDir || resolveData("bilibili", "downloads")
+    this.mediaTasksRoot = path.join(this.outputDir, "tasks")
+    this.tasksDir = options.tasksDir || path.join(this.mediaTasksRoot, "bilibili")
+    this.spawn = options.spawn || spawn
   }
 
   extractTarget(message = "") {
@@ -164,14 +169,8 @@ export class BilibiliService {
     }
 
     const download = normalizeDownloadConfig(config)
-    if (download.duration_limit_seconds > 0 && info.duration > download.duration_limit_seconds) {
-      return {
-        ok: false,
-        reason: "duration_limit",
-        info,
-        limitSeconds: download.duration_limit_seconds,
-      }
-    }
+    const limitFailure = mediaLimitFailure(info, download)
+    if (limitFailure) return limitFailure
 
     const estimatedSizeMb = estimateVideoSizeMb(info)
     if (download.max_estimated_size_mb > 0 && estimatedSizeMb > download.max_estimated_size_mb) {
@@ -185,14 +184,10 @@ export class BilibiliService {
     }
 
     const pages = selectPages(info.pages, download.multi_page_policy)
-    const cacheKey = downloadCacheKey(info, download)
-    const cached = await this.getCachedDownload(cacheKey, download).catch(() => null)
     return {
       ok: true,
       info,
       pages,
-      cacheKey,
-      cached,
       policy: download.multi_page_policy,
       downloader: "bbdown",
       estimatedSizeMb,
@@ -203,52 +198,21 @@ export class BilibiliService {
     const download = normalizeDownloadConfig(config)
     const plan = await this.buildDownloadPlan(input, download)
     if (!plan.ok) return plan
-
-    if (plan.cached?.files?.length) {
-      await emitBiliEvent(hooks, {
-        type: "cache-hit",
-        message: "命中 B站下载缓存，准备发送已缓存文件。",
-        files: plan.cached.files,
-      })
-      return {
-        ...plan,
-        ok: true,
-        fromCache: true,
-        files: plan.cached.files,
-      }
-    }
-
-    await emitBiliEvent(hooks, {
-      type: "download-start",
-      message: `开始下载 ${plan.info.bvid}，方式：${plan.downloader}，分P策略：${plan.policy}。`,
-    })
-
-    const workDir = path.join(this.tmpDir, `${plan.cacheKey}-${Date.now()}`)
-    const outputDir = this.outputDir
-    await fs.rm(workDir, { recursive: true, force: true })
-    await fs.mkdir(workDir, { recursive: true })
-    await fs.mkdir(outputDir, { recursive: true })
-
+    const task = await createMediaTask(this.tasksDir)
     try {
-      let files = await this.downloadWithBBDown(plan, download, workDir, hooks)
-
+      await emitBiliEvent(hooks, { type: "download-start", message: `开始下载 ${plan.info.bvid}，分P策略：${plan.policy}。` })
+      let files = await this.downloadWithBBDown(plan, download, task.dir, hooks)
       if (download.multi_page_policy === "zip" && files.length > 1) {
-        const zipPath = path.join(outputDir, `${safeFileName(plan.info.title || plan.info.bvid)}-${plan.info.bvid}.zip`)
-        await compressFiles(files, zipPath, this.spawn || spawn, download.timeout_ms)
-        files = [zipPath]
-      } else {
-        files = await moveFilesToOutput(files, outputDir)
+        const target = path.join(task.dir, `${safeFileName(plan.info.title || plan.info.bvid)}-${plan.info.bvid}.zip`)
+        await packMediaFiles(files, target, { timeoutMs: download.timeout_ms, spawnImpl: this.spawn, cwd: task.dir })
+        files = [target]
       }
-
-      await this.setCachedDownload(plan.cacheKey, files, download)
-      return {
-        ...plan,
-        ok: true,
-        fromCache: false,
-        files,
-      }
-    } finally {
-      await fs.rm(workDir, { recursive: true, force: true }).catch(() => null)
+      return { ...plan, ok: true, taskDir: task.dir, taskId: task.id, files }
+    } catch (error) {
+      await releaseMediaTask(this.tasksDir, task.dir).catch(cleanupError => {
+        globalThis.logger?.warn?.(`[Lotus-Plugin] Bilibili task cleanup: ${cleanupError.message}`)
+      })
+      throw error
     }
   }
 
@@ -285,10 +249,11 @@ export class BilibiliService {
     if (sessdata) args.push("-c", `SESSDATA=${sessdata}`)
     if (Array.isArray(config.extra_args) && config.extra_args.length) args.push(...config.extra_args)
 
-    return runSpawn(bbdownPath, args, {
+    return runMediaProcess(bbdownPath, args, {
       cwd,
       timeoutMs: Number(config.timeout_ms || 600000),
-      pathDirs: toolPathDirs,
+      env: buildToolProcessEnv(toolPathDirs),
+      spawnImpl: this.spawn,
     })
   }
 
@@ -377,41 +342,12 @@ export class BilibiliService {
     })
   }
 
-  async getCachedDownload(key, config = {}) {
-    if (!config.cache_enable) return null
-    const cache = await this.readCache()
-    const item = cache[key]
-    if (!item) return null
-    if (item.expires_at && Date.parse(item.expires_at) < Date.now()) {
-      delete cache[key]
-      await this.writeCache(cache)
-      return null
-    }
-    const files = []
-    for (const file of item.files || []) {
-      if (await exists(file)) files.push(file)
-    }
-    if (!files.length) {
-      delete cache[key]
-      await this.writeCache(cache)
-      return null
-    }
-    return {
-      ...item,
-      files,
-    }
+  async recoverTasks() {
+    return recoverMediaTasks(this.tasksDir)
   }
 
-  async setCachedDownload(key, files, config = {}) {
-    if (!config.cache_enable) return
-    const cache = await this.readCache()
-    const ttl = Number(config.cache_ttl_seconds || 0)
-    cache[key] = {
-      files,
-      saved_at: formatLocalIso(this.now()),
-      expires_at: ttl > 0 ? formatLocalIso(new Date(this.now().getTime() + ttl * 1000)) : "",
-    }
-    await this.writeCache(cache)
+  async releaseTask(result) {
+    return releaseMediaTask(this.tasksDir, result?.taskDir)
   }
 
   async readCache() {
@@ -456,7 +392,7 @@ export class BilibiliService {
     for (const [key, item] of Object.entries(cache)) {
       const rawFiles = Array.isArray(item.files) ? item.files : []
       const files = rawFiles
-        .filter(file => isPathInside(outputDir, file))
+        .filter(file => isPathInside(outputDir, file) && !isPathInside(this.mediaTasksRoot, file))
       const expired = Boolean(item.expires_at && Date.parse(item.expires_at) < nowMs)
       const existing = []
       for (const file of files) {
@@ -494,7 +430,7 @@ export class BilibiliService {
       .flatMap(item => Array.isArray(item?.files) ? item.files : [])
       .filter(file => isPathInside(outputDir, file))
       .map(file => path.resolve(file)))
-    const outputFiles = await listFiles(outputDir)
+    const outputFiles = await listFiles(outputDir, this.mediaTasksRoot)
     for (const entry of outputFiles) {
       if (entry.mtimeMs < retentionCutoff && !referenced.has(path.resolve(entry.file))) {
         if (await removeFile(entry.file)) {
@@ -504,7 +440,7 @@ export class BilibiliService {
       }
     }
 
-    const remaining = await listFiles(outputDir)
+    const remaining = await listFiles(outputDir, this.mediaTasksRoot)
     const maxBytes = cleanup.max_total_size_mb * 1024 * 1024
     let totalBytes = remaining.reduce((sum, entry) => sum + entry.size, 0)
     if (maxBytes > 0 && totalBytes > maxBytes) {
@@ -835,7 +771,7 @@ export function selectPages(pages = [], policy = "zip") {
 }
 
 export function selectCompletedMediaFiles(files = []) {
-  return files.filter(file => !looksLikeBbdownStreamPart(file))
+  return files.filter(file => MEDIA_EXTENSIONS.has(path.extname(file).toLowerCase()) && !looksLikeBbdownStreamPart(file))
 }
 
 export function looksLikeBbdownStreamPart(file = "") {
@@ -845,21 +781,8 @@ export function looksLikeBbdownStreamPart(file = "") {
   return /^\d{6,}\.P\d+\.\d+$/i.test(parsed.name)
 }
 
-export function downloadCacheKey(info, config = {}) {
-  return [
-    info.bvid || info.aid,
-    "bbdown",
-    config.resolution || 64,
-    config.multi_page_policy || "zip",
-  ].join("-")
-}
-
 export function safeFileName(value = "bilibili") {
-  return String(value || "bilibili")
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 120) || "bilibili"
+  return safeMediaName(value || "bilibili")
 }
 
 function extractFromJsonCard(raw) {
@@ -978,31 +901,6 @@ function collectToolPathDirs(bbdownPath = "", toolsPath = "") {
   return dirs
 }
 
-async function moveFilesToOutput(files, outputDir) {
-  const result = []
-  for (const file of files) {
-    const target = await uniquePath(path.join(outputDir, path.basename(file)))
-    await fs.rename(file, target).catch(async error => {
-      if (error?.code !== "EXDEV") throw error
-      await fs.copyFile(file, target)
-      await fs.rm(file, { force: true })
-    })
-    result.push(target)
-  }
-  return result
-}
-
-async function uniquePath(file) {
-  const parsed = path.parse(file)
-  let candidate = file
-  let index = 1
-  while (await exists(candidate)) {
-    candidate = path.join(parsed.dir, `${parsed.name}-${index}${parsed.ext}`)
-    index += 1
-  }
-  return candidate
-}
-
 async function findMediaFiles(root) {
   const files = []
   const queue = [root]
@@ -1020,7 +918,44 @@ async function findMediaFiles(root) {
   return files.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
 }
 
-async function listFiles(root) {
+function runSpawn(command, args = [], options = {}) {
+  return new Promise((resolve, reject) => {
+    const spawnImpl = options.spawnImpl || spawn
+    const child = spawnImpl(command, args, {
+      cwd: options.cwd,
+      env: options.pathDirs ? buildToolProcessEnv(options.pathDirs, options.env || process.env) : options.env,
+      windowsHide: true,
+    })
+    let stdout = ""
+    let stderr = ""
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill("SIGTERM")
+    }, Number(options.timeoutMs || 600000))
+
+    child.stdout?.on("data", chunk => {
+      stdout += chunk.toString()
+    })
+    child.stderr?.on("data", chunk => {
+      stderr += chunk.toString()
+    })
+    child.on("error", error => {
+      clearTimeout(timer)
+      if (options.rejectOnNonZero === false) resolve({ ok: false, stdout, stderr, error })
+      else reject(error)
+    })
+    child.on("close", code => {
+      clearTimeout(timer)
+      const ok = code === 0 && !timedOut
+      const result = { ok, code, timedOut, stdout, stderr }
+      if (ok || options.rejectOnNonZero === false) resolve(result)
+      else reject(new Error(stderr || stdout || `${command} exited with code ${code}`))
+    })
+  })
+}
+
+async function listFiles(root, protectedRoot = "") {
   const files = []
   const queue = [root]
   while (queue.length) {
@@ -1034,6 +969,7 @@ async function listFiles(root) {
     }
     for (const entry of entries) {
       const file = path.join(dir, entry.name)
+      if (entry.isSymbolicLink() || protectedRoot && (path.resolve(file) === path.resolve(protectedRoot) || isPathInside(protectedRoot, file))) continue
       if (entry.isDirectory()) queue.push(file)
       else if (entry.isFile()) {
         const stat = await statFile(file)
@@ -1093,43 +1029,6 @@ function isPathInside(root, candidate) {
   if (!candidate) return false
   const relative = path.relative(path.resolve(root), path.resolve(String(candidate)))
   return relative !== "" && !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative)
-}
-
-function runSpawn(command, args = [], options = {}) {
-  return new Promise((resolve, reject) => {
-    const spawnImpl = options.spawnImpl || spawn
-    const child = spawnImpl(command, args, {
-      cwd: options.cwd,
-      env: options.pathDirs ? buildToolProcessEnv(options.pathDirs, options.env || process.env) : options.env,
-      windowsHide: true,
-    })
-    let stdout = ""
-    let stderr = ""
-    let timedOut = false
-    const timer = setTimeout(() => {
-      timedOut = true
-      child.kill("SIGTERM")
-    }, Number(options.timeoutMs || 600000))
-
-    child.stdout?.on("data", chunk => {
-      stdout += chunk.toString()
-    })
-    child.stderr?.on("data", chunk => {
-      stderr += chunk.toString()
-    })
-    child.on("error", error => {
-      clearTimeout(timer)
-      if (options.rejectOnNonZero === false) resolve({ ok: false, stdout, stderr, error })
-      else reject(error)
-    })
-    child.on("close", code => {
-      clearTimeout(timer)
-      const ok = code === 0 && !timedOut
-      const result = { ok, code, timedOut, stdout, stderr }
-      if (ok || options.rejectOnNonZero === false) resolve(result)
-      else reject(new Error(stderr || stdout || `${command} exited with code ${code}`))
-    })
-  })
 }
 
 async function exists(file) {

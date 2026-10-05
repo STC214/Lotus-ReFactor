@@ -21,7 +21,29 @@ const COLOR = {
   line: "rgba(255,255,255,0.55)",
 }
 
+export function usesForkBackgroundLayout(templateName, data = {}) {
+  const supported = ["profile-card", "daily-note-summary", "checkin-result", "schedule-notice", "status", "qr-login", "bilibili-info", "genshin-team-damage", "starrail-team-damage", "starrail-challenge", "achievement-index", "achievement-category", "atlas-result", "atlas-challenge", "atlas-item"]
+  return supported.includes(templateName) && Boolean(data.backgroundProvider || data.bg || data.backgrounds?.length)
+}
+
 export async function renderWithSkia(templateName, data = {}, options = {}) {
+  // Prefer the new source-adapted cards while retaining fork-only templates.
+  if (!usesForkBackgroundLayout(templateName, data)) {
+  if (templateName === "atlas-page" || ["atlas-item", "atlas-challenge"].includes(templateName)) {
+    const { renderAtlasPage } = await import("./atlas-pages.js")
+    return renderAtlasPage({ ...data, template: templateName, view: data.view || {
+      game: data.item?.game || "", page: data.item?.page || "图鉴资料", description: data.message || "",
+    } }, options)
+  }
+  if (templateName === "starrail-challenge") {
+    const { renderStarRailAbyss } = await import("./starrail-abyss.js")
+    const buffer = await renderStarRailAbyss(data, options)
+    if (options.path) await fs.writeFile(options.path, buffer)
+    return globalThis.segment?.image ? globalThis.segment.image(buffer) : buffer
+  }
+  const { renderSourceCard, SOURCE_CARD_TEMPLATES } = await import("./source-cards.js")
+  if (SOURCE_CARD_TEMPLATES[templateName]) return renderSourceCard(templateName, data, options)
+  }
   await ensureFont()
   const normalized = normalizeData(data)
   const renderer = new SkiaRenderer(templateName, normalized, options)

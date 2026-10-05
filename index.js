@@ -2,9 +2,9 @@ import fs from "node:fs/promises"
 import { installLotusRuntimeInterception } from "./services/intercept/runtime.js"
 import { ensureGlobalConfig } from "./core/config/global.js"
 import { autoStartTestNineServer } from "./services/testNine/server.js"
-import { syncTrackedSubmodules } from "./services/pluginUpdate/service.js"
 import { ensureBackgroundPool } from "./core/render/background.js"
 import { applyWorkspacePolicy } from "./scripts/initialize-lotus.mjs"
+import { checkTrackedSubmoduleRemoteUpdates, syncTrackedSubmodules } from "./services/pluginUpdate/service.js"
 
 const pluginName = "Lotus-Plugin"
 const appsDir = new URL("./apps/", import.meta.url)
@@ -17,10 +17,19 @@ await applyWorkspacePolicy().then(result => {
   logger?.warn?.(`[${pluginName}] workspace build policy restore skipped: ${error.message}`)
 })
 
+let startupConfig = {}
 await ensureGlobalConfig().then(result => {
+  startupConfig = result.config || {}
   if (result.created) logger?.mark?.(`[${pluginName}] created default config: ${result.file}`)
 }).catch(error => {
   logger?.warn?.(`[${pluginName}] global config init skipped: ${error.message}`)
+})
+
+// 只检查并通知，不在开机阶段自动改写子仓库，避免隐藏更新或阻塞启动。
+void checkTrackedSubmoduleRemoteUpdates({ config: startupConfig }).then(result => {
+  if (result.updates?.length) logger?.warn?.(`[${pluginName}] ${result.message}`)
+}).catch(error => {
+  logger?.debug?.(`[${pluginName}] submodule remote check skipped: ${error.message}`)
 })
 
 await installLotusRuntimeInterception().catch(error => {

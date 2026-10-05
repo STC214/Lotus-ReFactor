@@ -1,8 +1,8 @@
 const BasePlugin = globalThis.plugin
 
 import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
-import { renderStatusCard, renderTemplate } from "../core/render/service.js"
-import { replyImage, replyText } from "../core/transport/reply.js"
+import { renderStatusCard, renderTemplate, renderAtlasBook } from "../core/render/service.js"
+import { replyImage, replyText, replyForward } from "../core/transport/reply.js"
 import { loadGlobalConfig } from "../core/config/global.js"
 import { PermissionService } from "../core/permissions/service.js"
 import {
@@ -230,8 +230,7 @@ export class LotusAtlas extends BasePlugin {
     }
 
     const result = await new NanokaAtlasService().search(query)
-    const image = await renderAtlasSearchResult(result, this.e.user_id)
-    await replyImage(this, image, result.ok ? "[荷花插件]图鉴查询完成。" : "[荷花插件]没有找到图鉴结果。")
+    await sendAtlasSearchResult(this, result)
     return true
   }
 
@@ -274,8 +273,7 @@ export class LotusAtlas extends BasePlugin {
       return true
     }
 
-    const image = await renderAtlasSearchResult(result, this.e.user_id)
-    await replyImage(this, image, "[荷花插件]图鉴查询完成。")
+    await sendAtlasSearchResult(this, result)
     return true
   }
 
@@ -289,7 +287,7 @@ export class LotusAtlas extends BasePlugin {
       items: [
         { label: "直查", value: "#星见雅 / #雾切之回光 / #雾切 / #冰封迷途的勇士" },
         { label: "显式", value: "#图鉴 神里绫华 / #荷花图鉴 星见雅" },
-        { label: "挑战图鉴", value: "#本期幽境 / #本期幻想 / *上期末日 / %下期防卫战" },
+        { label: "挑战图鉴", value: "#本期幽境图鉴 / #本期幻想图鉴 / *上期末日图鉴 / %下期防卫战图鉴" },
         { label: "不抢占", value: "#深渊 / #幻想 / #幽境 / *混沌 / %防卫战 仍交给挑战数据插件" },
         { label: "状态", value: "#图鉴状态" },
         { label: "更新", value: "#更新图鉴" },
@@ -386,6 +384,20 @@ async function renderAtlasSearchResult(result, userId) {
   return renderTemplate(selectAtlasTemplate(renderData), renderData, {
     saveId: `lotus-atlas-${userId || "user"}`,
   })
+}
+
+export async function sendAtlasSearchResult(target, result, options = {}) {
+  const data = buildAtlasRenderData(result)
+  if (selectAtlasTemplate(data) === "atlas-item" && data.view) {
+    const images = await (options.renderBook || renderAtlasBook)(data, { saveId: `lotus-atlas-${target.e?.user_id || "user"}` })
+    // Every character suffix produces the complete book, with one image per node.
+    if (data.view.kind === "character" || images.length > 1) {
+      const sections = [...new Set(images.map(image => image.section))]
+      return replyForward(target, [`${data.title}完整图鉴\n${sections.join(" → ")}\n共 ${images.length} 页`, ...images.map(image => image.image)], { description: `${data.title} · ${data.view.kind === "character" ? "完整角色图鉴" : "图鉴资料"}` })
+    }
+    return replyImage(target, images[0]?.image, "[荷花插件]图鉴查询完成。")
+  }
+  return replyImage(target, await renderAtlasSearchResult(result, target.e?.user_id), result.ok ? "[荷花插件]图鉴查询完成。" : "[荷花插件]没有找到图鉴结果。")
 }
 
 async function renderAtlasUpdateResult(result, userId) {

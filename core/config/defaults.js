@@ -193,6 +193,20 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
       max_total_size_mb: 1024,
     },
   },
+  douyin: {
+    enable: true,
+    request_timeout_ms: 15000,
+    download: {
+      enable: true,
+      tools_path: "data/tools/bin",
+      quality: "adapt",
+      duration_limit_seconds: 3600,
+      video_size_limit_mb: 100,
+      max_estimated_size_mb: 0,
+      multi_page_policy: "zip",
+      timeout_ms: 600000,
+    },
+  },
   groups: {
     cleanup: {
       enable: true,
@@ -290,6 +304,9 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
       },
       "bilibili.login": {
         policy: "master_only",
+      },
+      "douyin.download": {
+        policy: "inherit",
       },
       "bilibili.download": {
         policy: "inherit",

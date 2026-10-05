@@ -14,6 +14,8 @@ import {
   selectEnvironmentValue,
 } from "../runtime/environment.js"
 
+const toolInstallations = new Map()
+
 const TOOL_NAMES = ["bbdown", "ffmpeg", "aria2"]
 const DEFAULT_INSTALL_ATTEMPTS = 3
 
@@ -82,8 +84,16 @@ export class ToolInstallerService {
   }
 
   async ensureTool(name, config = null, options = {}) {
-    const onProgress = options.onProgress || this.onProgress
     const normalized = normalizeToolsConfig(config || await this.getConfig())
+    const key = `${resolveMaybeData(normalized.dir)}:${resolveMaybeData(normalized.bin_dir)}:${name}`
+    if (toolInstallations.has(key)) return toolInstallations.get(key)
+    const pending = this.installTool(name, normalized, options)
+    toolInstallations.set(key, pending)
+    try { return await pending } finally { toolInstallations.delete(key) }
+  }
+
+  async installTool(name, normalized, options = {}) {
+    const onProgress = options.onProgress || this.onProgress
     const tool = normalized[name]
     if (!tool) throw new Error(`unknown tool: ${name}`)
 
