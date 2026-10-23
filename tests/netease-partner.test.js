@@ -57,7 +57,8 @@ test("旧账号与 TuneWeave 启动账户核对身份，随后仅保存账户别
   assert.equal(migrated.tuneweave_account, "default")
   assert.equal("cookie" in migrated, false)
   assert.equal((await fs.readFile(file, "utf8")).includes("MUSIC_U"), false)
-  assert.equal((await fs.stat(file)).mode & 0o777, 0o600)
+  // POSIX mode bits do not represent Windows ACLs; retain the strict Linux check.
+  if (process.platform !== 'win32') assert.equal((await fs.stat(file)).mode & 0o777, 0o600)
 }))
 
 test("账号身份不匹配时不评分；TuneWeave 业务错误不会伪装成成功或泄露正文", async () => {

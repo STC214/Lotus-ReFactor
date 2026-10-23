@@ -131,6 +131,9 @@ test("未清洗的历史文件和特殊扩展名发送时仍使用安全路径",
   const root = await setup(t)
   const names = ['raw%FF.zip', 'percent%20name.zip', 'hash#name.zip', 'video.mp4%FF', 'file.💖', '.hidden', '控制\n行.zip', "quote'`$().zip"]
   for (const name of names) {
+    // Win32 cannot create control-character filenames; Linux still exercises
+    // the actual historical newline path, and the sanitizer matrix covers it everywhere.
+    if (process.platform === 'win32' && /[\u0000-\u001f]/.test(name)) continue
     const file = path.join(root, name); await fs.writeFile(file, 'bytes')
     await sendMediaFile({ isGroup: true, group: { sendFile: async (target, displayName) => {
       assert.equal(displayName, name)
