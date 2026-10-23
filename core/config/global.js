@@ -203,7 +203,7 @@ function normalizeLegacyPermissionScopes(permissions = {}) {
 function normalizeLegacyNetease(input = {}) {
   return {
     enable: Boolean(input.enable),
-    api_url: input.apiUrl || input.api_url || "http://127.0.0.1:3000",
+    ...(input.apiUrl || input.api_url ? { api_url: input.apiUrl || input.api_url } : {}),
     schedule: input.schedule || "0 5 0 * * ? *",
     auto_catch_up: Boolean(input.autoCatchUp ?? input.auto_catch_up),
     accounts: Array.isArray(input.accounts) ? input.accounts : [],
@@ -221,6 +221,8 @@ function normalizeCronFields(config = {}) {
     config.scheduler.catch_up_cron = normalizeQuartzCron(config.scheduler.catch_up_cron)
   }
   if (config.netease_partner) {
+    // Retain the retired endpoint as local metadata for reversible upgrades.
+    // TuneWeave requests use tuneweave.api_url, never this legacy value.
     config.netease_partner.schedule = normalizeQuartzCron(config.netease_partner.schedule)
   }
   if (config.atlas?.auto_update) {

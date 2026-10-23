@@ -58,6 +58,7 @@ const NUMBER_FIELDS = new Set([
   "bilibili.download.video_size_limit_mb",
   "bilibili.download.max_estimated_size_mb",
   "bilibili.download.timeout_ms",
+  "tuneweave.request_timeout_ms",
   "netease_partner.login_timeout_ms",
   "netease_partner.login_poll_ms",
   "netease_partner.delay_ms_min",
@@ -236,7 +237,7 @@ const GUOBA_SCHEMAS = [
   sw("remote.restrict_file_paths", "限制文件路径", "上传下载只允许指定目录。"),
   textArea("remote.allowed_paths", "允许路径", "每行一个目录。"),
   sw("remote.allow_admin", "允许管理员模式", "仅在受控环境下开启。"),
-  textArea("remote.shells", "允许 shell", "每行一个：pwsh、powershell、cmd。"),
+  textArea("remote.shells", "允许 shell", "每行一个：pwsh、powershell、cmd、bash、sh、zsh；主机需已安装对应 shell。"),
 
   group("B 站"),
   textArea("bilibili.cookie", "B 站 Cookie", "长 Cookie 可直接粘贴。"),
@@ -291,7 +292,8 @@ const GUOBA_SCHEMAS = [
 
   group("网易云任务"),
   sw("netease_partner.enable", "启用网易云任务", "总开关。"),
-  input("netease_partner.api_url", "网易云接口", "本地或远程 API 地址。"),
+  input("tuneweave.api_url", "TuneWeave 服务地址", "自托管 TuneWeave，默认 http://127.0.0.1:7832。"),
+  number("tuneweave.request_timeout_ms", "TuneWeave 请求超时", "单位毫秒。"),
   ...schedule("netease_partner.schedule", "执行时间", "自动任务 schedule。"),
   sw("netease_partner.auto_catch_up", "启动补跑", "错过当天任务后启动补跑。"),
   sw("netease_partner.notify_master", "给主人发结果图", "自动任务完成后私聊给主人发送图片报告。"),

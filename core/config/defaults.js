@@ -163,7 +163,7 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
     restrict_file_paths: true,
     allowed_paths: ["data/remote"],
     allow_admin: false,
-    shells: ["pwsh", "powershell", "cmd"],
+    shells: ["pwsh", "powershell", "cmd", "bash", "sh", "zsh"],
   },
   bilibili: {
     cookie: "",
@@ -216,9 +216,12 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
       keep_if_private_possible: true,
     },
   },
+  tuneweave: {
+    api_url: "http://127.0.0.1:7832",
+    request_timeout_ms: 30000,
+  },
   netease_partner: {
     enable: false,
-    api_url: "http://127.0.0.1:3000",
     schedule: "0 5 0 * * ? *",
     auto_catch_up: false,
     notify_master: true,
