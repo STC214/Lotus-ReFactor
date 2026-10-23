@@ -571,15 +571,29 @@ export function normalizeSpawnCommand(command, args = [], platform = process.pla
 
 const run = runProcess
 
-function terminateChild(child, signal) {
+export function terminateChild(child, signal, options = {}) {
+  const fallback = () => {
+    try { child.kill(signal) } catch {}
+  }
   try {
-    if (process.platform === "win32" && child.pid) {
-      const killer = spawn("taskkill.exe", ["/PID", String(child.pid), "/T", ...(signal === "SIGKILL" ? ["/F"] : [])], { windowsHide: true })
+    if ((options.platform || process.platform) === "win32" && child.pid) {
+      let fallbackUsed = false
+      const recover = () => {
+        if (fallbackUsed) return
+        fallbackUsed = true
+        fallback()
+      }
+      const killer = (options.spawn || spawn)("taskkill.exe", ["/PID", String(child.pid), "/T", ...(signal === "SIGKILL" ? ["/F"] : [])], { windowsHide: true, stdio: "ignore" })
+      // WMI/process-tree access can fail asynchronously on restricted Windows.
+      // An unhandled/ignored taskkill failure otherwise leaves the timed-out
+      // child and its stdio alive after the command promise has rejected.
+      killer.once("error", recover)
+      killer.once("exit", code => { if (code !== 0) recover() })
       killer.unref()
     } else if (child.pid) process.kill(-child.pid, signal)
     else child.kill(signal)
   } catch {
-    try { child.kill(signal) } catch {}
+    fallback()
   }
 }
 

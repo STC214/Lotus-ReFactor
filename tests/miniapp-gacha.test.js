@@ -74,3 +74,26 @@ test("命令支持 profile 和原别名，不接受手动链接；保留本地�
     assert.equal((await cleanupLegacyYunzaiConflictDisableConfig({ file })).skipped, true)
   } finally { await fs.rm(dir, { recursive: true, force: true }) }
 })
+
+test("新增小助手功能名后仍清理升级前的完整旧禁用名单，不动用户或群配置", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "lotus-legacy-disable-"))
+  try {
+    const file = path.join(dir, "group.yaml")
+    const oldNames = LOTUS_CONFIG_DISABLED_PLUGIN_NAMES.filter(name => name !== "提瓦特小助手抽卡记录")
+    for (const names of [oldNames, [...LOTUS_CONFIG_DISABLED_PLUGIN_NAMES]]) {
+      await fs.writeFile(file, YAML.stringify({ default: { disable: ["用户自选功能", ...names] }, "123": { disable: ["群配置", "米哈游登录"] } }))
+      const result = await cleanupLegacyYunzaiConflictDisableConfig({ file })
+      assert.equal(result.changed, true)
+      assert.deepEqual(result.removed, names)
+      const saved = YAML.parse(await fs.readFile(file, "utf8"))
+      assert.deepEqual(saved.default.disable, ["用户自选功能"])
+      assert.deepEqual(saved["123"].disable, ["群配置", "米哈游登录"])
+      assert.equal((await cleanupLegacyYunzaiConflictDisableConfig({ file })).skipped, true)
+    }
+    const partial = { default: { disable: ["用户自选功能", "米哈游登录", "提瓦特小助手抽卡记录"] } }
+    const raw = YAML.stringify(partial)
+    await fs.writeFile(file, raw)
+    assert.equal((await cleanupLegacyYunzaiConflictDisableConfig({ file })).skipped, true)
+    assert.equal(await fs.readFile(file, "utf8"), raw)
+  } finally { await fs.rm(dir, { recursive: true, force: true }) }
+})

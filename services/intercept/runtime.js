@@ -141,13 +141,20 @@ export async function cleanupLegacyYunzaiConflictDisableConfig(options = {}) {
     const currentDisable = Array.isArray(config?.default?.disable)
       ? config.default.disable.map(String)
       : []
-    const hasLegacySignature = ownedNames.length > 0
-      && ownedNames.every(name => currentDisable.includes(String(name)))
-    if (!hasLegacySignature) {
+    // The miniapp name was added after the fork stopped taking over commands.
+    // Recognize the preceding complete signature as well, without treating a
+    // user's partial overlap as a legacy auto-generated disable list.
+    const signatures = [ownedNames]
+    if (!options.disabledNames) {
+      signatures.push(ownedNames.filter(name => name !== "提瓦特小助手抽卡记录"))
+    }
+    const legacySignature = signatures.find(names => names.length > 0
+      && names.every(name => currentDisable.includes(String(name))))
+    if (!legacySignature) {
       return { ok: true, skipped: true, file, reason: "legacy_signature_not_found" }
     }
 
-    const owned = new Set(ownedNames.map(String))
+    const owned = new Set(legacySignature.map(String))
     const nextDisable = currentDisable.filter(name => !owned.has(name))
     config.default.disable = nextDisable
     await fs.writeFile(file, YAML.stringify(config), "utf8")
