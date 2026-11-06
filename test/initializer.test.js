@@ -383,9 +383,11 @@ test("timeout force-kills descendants when the process leader exits on SIGTERM",
   const childCode = "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"
   const leaderCode = `const fs=require('fs'),{spawn}=require('child_process');const c=spawn(process.execPath,['-e',${JSON.stringify(childCode)}],{stdio:'ignore'});fs.writeFileSync(process.argv[1],String(c.pid));process.on('SIGTERM',()=>process.exit(0));setInterval(()=>{},1000)`
   await assert.rejects(runProcess(process.execPath, ["-e", leaderCode, pidFile], {
-    timeoutMs: 100,
+    // Leave enough startup budget on a busy router for both processes to exist.
+    // The assertion below still requires the surviving descendant to be killed.
+    timeoutMs: 1000,
     killGraceMs: 100,
-  }), /timed out after 100ms/)
+  }), /timed out after 1000ms/)
   const pid = Number(await fs.readFile(pidFile, "utf8"))
   await new Promise(resolve => setTimeout(resolve, 100))
   let alive = true
