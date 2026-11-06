@@ -82,7 +82,11 @@ export function migrateGlobalConfig(config = {}) {
   const normalizedConfig = normalizeLegacyGlobalShape(config)
   if (normalizedConfig.permissions?.scopes) delete normalizedConfig.permissions.scopes["permissions.manage"]
   if (normalizedConfig.music) delete normalizedConfig.music.voice_one_second
-  if (normalizedConfig.captcha?.gtmanual) delete normalizedConfig.captcha.gtmanual.address
+  // Existing installations selected an external manual-verification endpoint.
+  // A newly added internal service must not silently take over that choice.
+  if (normalizedConfig.captcha?.gtmanual && !Object.hasOwn(normalizedConfig.captcha.gtmanual, "internal_enable")) {
+    normalizedConfig.captcha.gtmanual.internal_enable = false
+  }
   if (normalizedConfig.tuneweave) delete normalizedConfig.tuneweave.auto_update
   const legacyPermissions = findLegacyPermissionControl(normalizedConfig)
   const hasExplicitPermissions = Object.prototype.hasOwnProperty.call(normalizedConfig, "permissions")

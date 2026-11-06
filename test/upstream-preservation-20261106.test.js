@@ -17,7 +17,8 @@ test("upstream migration preserves fork configuration and account metadata", () 
     render: { background_pool_size: 30, super_resolution_preset: "off", background: ["local.jpg"] },
     python: { system_python: "python3", venv_path: "data/custom-venv" },
     scheduler: { mode: "random", plan_date_cutoff_time: "23:00", failure_retry_minutes: ["15", "60"] },
-    captcha: { test_nine: { auto_start: false, download_models: false, venv_path: "data/retained-venv" } },
+    captcha: { test_nine: { auto_start: false, download_models: false, venv_path: "data/retained-venv" },
+      gtmanual: { address: "https://manual.example.test/", verify_addr: "https://manual.example.test/register" } },
     tools: { auto_install: false, bbdown: { command: "my-BBDown" }, aria2: { enable: false } },
     bilibili: { cookie: "fixture-cookie", download: { use_aria2: false, extra_args: ["--fixture"], multi_page_policy: "first" } },
     logging: { retention_days: 31 },
@@ -33,6 +34,9 @@ test("upstream migration preserves fork configuration and account metadata", () 
   assert.equal(output.captcha.test_nine.auto_start, false)
   assert.equal(output.captcha.test_nine.download_models, false)
   assert.equal(output.captcha.test_nine.venv_path, "data/retained-venv")
+  assert.equal(output.captcha.gtmanual.internal_enable, false)
+  assert.equal(output.captcha.gtmanual.address, input.captcha.gtmanual.address)
+  assert.equal(output.captcha.gtmanual.verify_addr, input.captcha.gtmanual.verify_addr)
   assert.equal(output.tools.auto_install, false)
   assert.equal(output.tools.bbdown.command, "my-BBDown")
   assert.equal(output.tools.aria2.enable, false)
