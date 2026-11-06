@@ -1,6 +1,7 @@
 import fs from "node:fs/promises"
 import fsSync from "node:fs"
 import path from "node:path"
+import { createHash, randomUUID } from "node:crypto"
 import { spawn } from "node:child_process"
 import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
@@ -45,24 +46,9 @@ export class ToolInstallerService {
   async ensureAll(options = {}) {
     const onProgress = options.onProgress || this.onProgress
     const config = normalizeToolsConfig(options.config || await this.getConfig())
-    if (config.auto_install === false) {
-      await emitProgress(onProgress, "工具链：自动安装已关闭")
-      return {
-        ok: true,
-        skipped: true,
-        reason: "auto_install_disabled",
-        items: TOOL_NAMES.map(name => ({ name, ok: true, skipped: true })),
-      }
-    }
 
     const items = []
     for (const name of TOOL_NAMES) {
-      const item = config[name] || {}
-      if (item.enable === false) {
-        await emitProgress(onProgress, `工具链：${name} 已禁用`)
-        items.push({ name, ok: true, skipped: true, reason: "disabled" })
-        continue
-      }
       await emitProgress(onProgress, `工具链：检查 ${name}`)
       items.push(await this.ensureTool(name, config, { onProgress }).catch(async error => {
         await emitProgress(onProgress, `工具链：${name} 失败：${error.message}`)
@@ -85,6 +71,7 @@ export class ToolInstallerService {
 
   async ensureTool(name, config = null, options = {}) {
     const normalized = normalizeToolsConfig(config || await this.getConfig())
+    if (normalized[name]?.enable === false) return { name, ok: true, skipped: true, status: "disabled" }
     const key = `${resolveMaybeData(normalized.dir)}:${resolveMaybeData(normalized.bin_dir)}:${name}`
     if (toolInstallations.has(key)) return toolInstallations.get(key)
     const pending = this.installTool(name, normalized, options)
@@ -93,6 +80,130 @@ export class ToolInstallerService {
   }
 
   async installTool(name, normalized, options = {}) {
+    if (name !== "ffmpeg") return this.installLegacyTool(name, normalized, options)
+    if (selectEnvironmentValue(normalized.ffmpeg?.urls, this.environment)) return this.installLegacyTool(name, normalized, options)
+    const onProgress = options.onProgress || this.onProgress
+    const tool = normalized[name]
+    if (!tool) throw new Error(`unknown tool: ${name}`)
+
+    const binDir = resolveMaybeData(normalized.bin_dir || "data/tools/bin")
+    const toolsDir = resolveMaybeData(normalized.dir || "data/tools")
+    const existing = await findCommandExecutable(tool.command, [binDir], this.platform)
+    let health, release, asset
+    if (!existing) {
+      const system = await findExecutableOnPath(tool.command, { platform: this.platform, env: this.env })
+      if (system) {
+        const checked = await inspectToolInstall(name, system, binDir, toolsDir, this.platform, {
+          spawn: this.spawn, env: this.env, source: "system",
+        })
+        if (checked.ok) return { name, ok: true, status: "system", source: "system", path: system, external: true }
+      }
+    }
+    if (existing) {
+      const real = await fs.realpath(existing)
+      if (path.dirname(real) !== path.resolve(binDir)) {
+        const probe = await findCommandExecutable("ffprobe", [binDir], this.platform)
+        if (!probe) throw new Error("外部 FFmpeg 缺少 ffprobe，请由部署者修复")
+        try {
+          await runSpawn(this.spawn, existing, ["-version"], { timeoutMs: 15000 })
+          await runSpawn(this.spawn, probe, ["-version"], { timeoutMs: 15000 })
+        } catch { throw new Error("外部 FFmpeg 环境异常，请由部署者修复") }
+        return { name, ok: true, status: "ready", path: existing, external: true }
+      }
+      health = await inspectToolInstall(name, existing, binDir, toolsDir, this.platform, { spawn: this.spawn, env: this.env })
+      if (health.ok) {
+        await ensureExecutablePermissions(name, existing, binDir, this.platform)
+        try { await runSpawn(this.spawn, existing, ["-version"], { timeoutMs: 15000 }); await runSpawn(this.spawn, path.join(binDir, commandFileName("ffprobe", this.platform)), ["-version"], { timeoutMs: 15000 }) }
+        catch { health = { ok: false, reason: "工具无法正常执行" } }
+      }
+      if (!health.ok) await emitProgress(onProgress, `工具链：${name} 需要修复：${health.reason}`)
+    }
+
+    const receiptFile = path.join(toolsDir, `${name}-install.json`)
+    let receipt, receiptInvalid = false
+    try { receipt = JSON.parse(await fs.readFile(receiptFile, "utf8")) }
+    catch (error) { if (error instanceof SyntaxError) receiptInvalid = true; else if (error.code !== "ENOENT") throw error }
+    const localFiles = health?.ok ? await fingerprintPayload(binDir, this.platform) : null
+    const localVerified = health?.ok && !receiptInvalid && (!receipt || receipt.repo === tool.repo && JSON.stringify(localFiles) === JSON.stringify(receipt.files))
+    try {
+      if (typeof this.fetch !== "function") throw new Error("fetch is unavailable")
+      if (name === "ffmpeg") await removeSharedFfmpegArtifacts(toolsDir)
+      await emitProgress(onProgress, `工具链：查询 ${tool.repo} 最新版本`)
+      release = await this.fetchLatestRelease(tool.repo, normalized.github_api, null)
+      asset = pickReleaseAsset(name, release.assets || [], {
+        platform: this.platform,
+        arch: this.arch,
+        patterns: tool.asset_patterns,
+      })
+      if (!asset) throw new Error(`no release asset matched ${name} ${this.platform}/${this.arch}`)
+      if (health?.ok && receipt?.repo === tool.repo && receipt.assetId === asset.id && receipt.updatedAt === asset.updated_at && receipt.digest === asset.digest) {
+        const files = await fingerprintPayload(binDir, this.platform)
+        if (JSON.stringify(files) === JSON.stringify(receipt.files)) return { name, ok: true, status: "ready", path: existing, asset: asset.name }
+      }
+
+      const archiveDir = path.join(toolsDir, "downloads")
+      const extractDir = path.join(toolsDir, name)
+      await fs.mkdir(archiveDir, { recursive: true })
+      await fs.mkdir(binDir, { recursive: true })
+
+      const archive = path.join(archiveDir, safeFileName(asset.name))
+      const attempts = Math.max(1, Number(normalized.download_retries || DEFAULT_INSTALL_ATTEMPTS))
+      let lastError = null
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+          await fs.rm(extractDir, { recursive: true, force: true })
+          await fs.mkdir(extractDir, { recursive: true })
+          await fs.rm(archive, { force: true }).catch(() => null)
+
+          await emitProgress(onProgress, `工具链：下载 ${asset.name}${attempt > 1 ? `（重试 ${attempt}/${attempts}）` : ""}`)
+          await this.downloadAsset(asset.browser_download_url || asset.url, archive, { timeoutMs: normalized.timeout_ms })
+          if (!/^sha256:[a-f0-9]{64}$/i.test(asset.digest || "")) throw new Error("发布包缺少 SHA-256，保留原工具")
+          if (await sha256File(archive) !== asset.digest.slice(7).toLowerCase()) throw new Error("FFmpeg 发布包 SHA-256 不匹配")
+          await emitProgress(onProgress, `工具链：准备 ${asset.name}`)
+          await extractArchive(this.spawn, archive, extractDir, { timeoutMs: normalized.timeout_ms })
+
+          const executable = await findExtractedExecutable(extractDir, tool.command, this.platform)
+          if (!executable) throw new Error(`${tool.command} executable not found in ${asset.name}`)
+          await runSpawn(this.spawn, executable, ["-version"], { timeoutMs: 15000 })
+          await runSpawn(this.spawn, path.join(path.dirname(executable), commandFileName("ffprobe", this.platform)), ["-version"], { timeoutMs: 15000 })
+
+          const target = await copyToolPayload(name, executable, binDir, tool.command, this.platform)
+          const receiptTemp = `${receiptFile}.${randomUUID()}.tmp`
+          try {
+            await fs.writeFile(receiptTemp, JSON.stringify({ repo: tool.repo, assetId: asset.id, updatedAt: asset.updated_at, digest: asset.digest, files: await fingerprintPayload(binDir, this.platform) }), { flag: "wx" })
+            await fs.rename(receiptTemp, receiptFile)
+          } finally { await fs.rm(receiptTemp, { force: true }) }
+          await emitProgress(onProgress, `工具链：${name} 安装完成`)
+
+          return {
+            name,
+            ok: true,
+            status: "installed",
+            repo: tool.repo,
+            asset: asset.name,
+            path: target,
+            attempts: attempt,
+          }
+        } catch (error) {
+          lastError = error
+          await cleanupBrokenInstallArtifacts(archive, extractDir)
+          if (attempt < attempts) {
+            await emitProgress(onProgress, `工具链：${name} 安装包异常，已清理并准备重下：${error.message}`)
+          }
+        }
+      }
+      throw new Error(`${lastError?.message || `${tool.command} install failed`}；已自动重试 ${attempts} 次`)
+    } catch (error) {
+      // Only retain the exact healthy payload checked before attempting update.
+      // Missing files, receipt mismatches and a failed rollback remain errors.
+      if (localVerified && JSON.stringify(await fingerprintPayload(binDir, this.platform)) === JSON.stringify(localFiles)) {
+        return { name, ok: true, status: "ready", path: existing, updateDeferred: true, reason: "现有 FFmpeg 已通过执行与文件检查，更新暂未完成，稍后重试。" }
+      }
+      throw error
+    }
+  }
+
+  async installLegacyTool(name, normalized, options = {}) {
     const onProgress = options.onProgress || this.onProgress
     const tool = normalized[name]
     if (!tool) throw new Error(`unknown tool: ${name}`)
@@ -222,9 +333,10 @@ export class ToolInstallerService {
     throw new Error(`${lastError?.message || `${tool.command} install failed`}；已自动重试 ${attempts} 次`)
   }
 
-  async fetchLatestRelease(repo, api = "https://api.github.com") {
+  async fetchLatestRelease(repo, api = "https://api.github.com", tag = null) {
     const base = String(api || "https://api.github.com").replace(/\/+$/, "")
-    const response = await this.fetch(`${base}/repos/${repo}/releases/latest`, {
+    const response = await this.fetch(`${base}/repos/${repo}/releases/${tag ? `tags/${encodeURIComponent(tag)}` : "latest"}`, {
+      signal: AbortSignal.timeout(30000),
       headers: {
         Accept: "application/vnd.github+json",
         "User-Agent": "Lotus-Plugin tool installer",
@@ -234,9 +346,10 @@ export class ToolInstallerService {
     return response.json()
   }
 
-  async downloadAsset(url, target) {
+  async downloadAsset(url, target, { timeoutMs = 300000 } = {}) {
     const temp = `${target}.part-${process.pid}-${Date.now()}`
     const response = await this.fetch(url, {
+      signal: AbortSignal.timeout(timeoutMs),
       headers: {
         "User-Agent": "Lotus-Plugin tool installer",
       },
@@ -261,7 +374,6 @@ export class ToolInstallerService {
 
 export function normalizeToolsConfig(config = {}) {
   return {
-    auto_install: config.auto_install !== false,
     dir: config.dir || "data/tools",
     bin_dir: config.bin_dir || "data/tools/bin",
     github_api: config.github_api || "https://api.github.com",
@@ -525,21 +637,51 @@ export async function inspectToolInstall(name, executable, binDir, toolsDir, pla
 async function copyToolPayload(name, executable, binDir, command, platform = process.platform) {
   const target = path.join(binDir, commandFileName(command, platform))
   if (name !== "ffmpeg") {
-    await fs.copyFile(executable, target)
-    if (normalizePlatform(platform) !== "windows") await fs.chmod(target, 0o755).catch(() => null)
+    // rename 替换软链接本身，避免覆盖插件目录外的链接目标；旧版本在下载失败时仍可用。
+    const staging = `${target}.install-${process.pid}`
+    try {
+      await fs.copyFile(executable, staging)
+      if (platform !== "win32") await fs.chmod(staging, 0o755)
+      await fs.rename(staging, target)
+    } finally { await fs.rm(staging, { force: true }).catch(() => null) }
     return target
   }
 
   const sourceDir = path.dirname(executable)
   const entries = await fs.readdir(sourceDir, { withFileTypes: true })
-  for (const entry of entries) {
-    if (!entry.isFile() || !shouldCopyFfmpegPayloadFile(entry.name, platform)) continue
-    const source = path.join(sourceDir, entry.name)
-    const dest = path.join(binDir, entry.name)
-    await fs.copyFile(source, dest)
-    if (normalizePlatform(platform) !== "windows") await fs.chmod(dest, 0o755).catch(() => null)
+  const staging = await fs.mkdtemp(path.join(binDir, ".ffmpeg-install-")), replaced = []
+  try {
+    for (const entry of entries) {
+      if (!entry.isFile() || !shouldCopyFfmpegPayloadFile(entry.name, platform)) continue
+      const next = path.join(staging, entry.name), dest = path.join(binDir, entry.name), backup = `${next}.previous`
+      await fs.copyFile(path.join(sourceDir, entry.name), next)
+      if (platform !== "win32") await fs.chmod(next, 0o755)
+      let existed = true
+      try { await fs.rename(dest, backup) } catch (error) { if (error.code === "ENOENT") existed = false; else throw error }
+      replaced.push({ dest, backup, existed })
+      await fs.rename(next, dest)
+    }
+  } catch (error) {
+    for (const item of replaced.reverse()) {
+      await fs.rm(item.dest, { force: true })
+      if (item.existed) await fs.rename(item.backup, item.dest)
+    }
+    throw error
+  } finally {
+    await fs.rm(staging, { recursive: true, force: true })
   }
   return target
+}
+
+async function sha256File(file) {
+  const hash = createHash("sha256")
+  for await (const chunk of fsSync.createReadStream(file)) hash.update(chunk)
+  return hash.digest("hex")
+}
+
+async function fingerprintPayload(binDir, platform) {
+  const entries = (await fs.readdir(binDir, { withFileTypes: true })).filter(entry => entry.isFile() && shouldCopyFfmpegPayloadFile(entry.name, platform)).sort((a, b) => a.name.localeCompare(b.name))
+  return Object.fromEntries(await Promise.all(entries.map(async entry => [entry.name, await sha256File(path.join(binDir, entry.name))])))
 }
 
 async function ensureExecutablePermissions(name, executable, binDir, platform = process.platform) {

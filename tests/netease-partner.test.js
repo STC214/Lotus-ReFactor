@@ -79,10 +79,12 @@ test("登录使用 TuneWeave 服务端事务，不向 Lotus 返回 Cookie", asyn
     },
   } })
   const qr = await service.createQrLogin("42")
-  assert.equal(calls[0].options.body.credential_mode, "server")
+  assert.equal(calls[0].options.body.credential_mode, "both")
   assert.equal(calls[0].options.body.account, "lotus-nep-42")
   const result = await service.waitQrLogin({ key: qr.key, alias: qr.alias, qq: "42" })
   assert.equal(result.account.tuneweave_account, "lotus-nep-42")
+  assert.equal("cookie" in result.account, false)
+  assert.equal("credential" in result.account, false)
   assert.equal(calls[1].route, "/v1/auth/qr/transaction")
 }))
 
@@ -112,9 +114,9 @@ test("初始化只选择官方 SHA-256 发布物，缺少必要能力不报告�
 
 test("SHA-256 不匹配时不安装或启动，未初始化时启动不下载", async () => fixture(async dir => {
   let spawned = false
-  const artifact = { platform: "linux", architecture: "x86_64", download_url: "https://github.com/MOPELotus/TuneWeave/releases/download/v1/binary", verification: { algorithm: "sha256", checksum_url: "https://github.com/MOPELotus/TuneWeave/releases/download/v1/binary.sha256" } }
+  const artifact = { platform: "linux", architecture: "x86_64", download_url: "https://github.com/MOPELotus/TuneWeave/releases/download/v1.0.0-beta.3/binary", verification: { algorithm: "sha256", checksum_url: "https://github.com/MOPELotus/TuneWeave/releases/download/v1.0.0-beta.3/binary.sha256" } }
   const service = new TuneWeaveService({ root: dir, platform: "linux", arch: "x64", spawn: () => { spawned = true }, fetch: async url => {
-    if (url.endsWith("release-manifest.json")) return new Response(JSON.stringify({ artifacts: [artifact] }))
+    if (url.endsWith("release-manifest.json")) return new Response(JSON.stringify({ version: "1.0.0-beta.3", artifacts: [artifact] }))
     return new Response(url.endsWith(".sha256") ? "0".repeat(64) : "binary-content")
   } })
   service.status = async () => ({ ok: false, reachable: false })

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises"
 import path from "node:path"
 import { importRuntimeModule } from "./common.js"
+import { renderMiaoGacha } from "./miaoGacha.js"
 
 const MIAO_POOL_TYPES = Object.freeze({
   GachaType_AvatarUp: 11,
@@ -15,6 +16,7 @@ export class StarRailGachaDisplayBridge {
   constructor(options = {}) {
     this.loadGachaLog = options.loadGachaLog || loadGachaLog
     this.loadGcLogApp = options.loadGcLogApp || loadGcLogApp
+    this.loadMiaoGacha = options.loadMiaoGacha
     this.storageRoot = options.storageRoot || path.resolve(process.cwd(), "data", "srJson")
     this.backupRoot = options.backupRoot || path.resolve(`${this.storageRoot}.backup`)
     this.restoreBackupRoot = options.restoreBackupRoot || path.resolve(`${this.storageRoot}.pre-restore`)
@@ -26,6 +28,11 @@ export class StarRailGachaDisplayBridge {
     const renderUserId = `lotus-render-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     try {
       await this.mirror({ qq: renderUserId, uid, data })
+      const starRailRecords = Object.fromEntries(Object.entries(MIAO_POOL_TYPES).map(([pool, type]) =>
+        [type, buildMiaoPoolRecords(data?.pools?.[pool], type, uid)]))
+      const display = await renderMiaoGacha({ e, qq: renderUserId, uid, game: "sr", viewMessage, starRailRecords,
+        loadGacha: this.loadMiaoGacha })
+      if (display) return display
       const [GachaLog, GcLogApp] = await Promise.all([this.loadGachaLog(), this.loadGcLogApp()])
       const event = createRenderEvent(e, uid, renderUserId, viewMessage)
       const model = new GachaLog(event)
@@ -38,7 +45,8 @@ export class StarRailGachaDisplayBridge {
       const renderer = new GcLogApp()
       renderer.e = event
       renderer.reply = event.reply.bind(event)
-      const image = await renderer.renderImg("genshin", "html/gacha/gacha-log", renderData, { retType: "base64" })
+      const template = event.isAll ? "html/gacha/gacha-all-log" : "html/gacha/gacha-log"
+      const image = await renderer.renderImg("genshin", template, renderData, { retType: "base64" })
       if (!image) throw new Error("miao 星铁抽卡模板渲染失败")
       return {
         image,
@@ -155,6 +163,7 @@ export function buildMiaoPoolRecords(pool = {}, numericType, uid) {
       item_type: record.item?.item_type === "ItemType_Avatar" ? "角色" : "光锥",
       rank_type: "5",
       gacha_type: String(numericType),
+      ...(typeof record.is_up === "boolean" ? { is_up: record.is_up } : {}),
       time,
     })
     addFillers(Math.max(0, nonNegativeInt(record.gacha_count) - 1), time)
@@ -177,7 +186,7 @@ async function writeJsonAtomic(file, data) {
 }
 
 function createRenderEvent(e, uid, renderUserId, viewMessage) {
-  const isAll = /全部/.test(String(viewMessage))
+  const isAll = /^#(?:原神|星铁)?全部记录$/.test(String(viewMessage))
   return {
     ...e,
     msg: viewMessage,

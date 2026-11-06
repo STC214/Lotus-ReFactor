@@ -1,7 +1,8 @@
 import fs from "node:fs/promises"
+import { createReadStream } from "node:fs"
 import path from "node:path"
 import os from "node:os"
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { spawn } from "node:child_process"
 
 export function safeMediaName(value = "media") {
@@ -18,7 +19,29 @@ export function safeMediaName(value = "media") {
   return output || "media"
 }
 
+const mediaUploadQueues = new Map()
+
 export async function sendMediaFile(e, file, config = {}) {
+  // QQ maps equal file contents to the same internal cache even when the
+  // download directories and NapCat temporary filenames are distinct.
+  const hash = createHash("md5")
+  for await (const chunk of createReadStream(file)) hash.update(chunk)
+  const botId = e.self_id ?? e.bot?.self_id ?? e.bot?.uin ?? "unknown-bot"
+  const key = `${String(botId)}:${hash.digest("hex")}`
+  const previous = mediaUploadQueues.get(key)
+  let release
+  const current = new Promise(resolve => { release = resolve })
+  mediaUploadQueues.set(key, current)
+  try {
+    if (previous) await previous
+    return await sendIsolatedMediaFile(e, file, config)
+  } finally {
+    release()
+    if (mediaUploadQueues.get(key) === current) mediaUploadQueues.delete(key)
+  }
+}
+
+async function sendIsolatedMediaFile(e, file, config = {}) {
   file = path.resolve(file)
   const stat = await fs.stat(file)
   const ext = path.extname(file).toLowerCase()
@@ -56,7 +79,8 @@ export async function sendMediaFile(e, file, config = {}) {
   }
 }
 
-export async function runMediaProcess(command, args, { cwd, env, timeoutMs = 600000, spawnImpl = spawn } = {}) {
+export async function runMediaProcess(command, args, { cwd, env, timeoutMs = 600000, spawnImpl = spawn, signal } = {}) {
+  if (signal?.aborted) throw new Error("媒体处理已取消")
   const owned = cwd && await fs.access(path.join(cwd, ".lotus-media-task.json")).then(() => true, () => false)
   const marker = owned ? path.join(cwd, ".lotus-media-process.json") : null
   if (marker) await fs.writeFile(marker, JSON.stringify({ state: "starting" }))
@@ -73,19 +97,23 @@ export async function runMediaProcess(command, args, { cwd, env, timeoutMs = 600
     child = spawnImpl(command, args, { cwd, env, windowsHide: true, detached: grouped })
     let output = ""
     let timedOut = false
+    let aborted = false
     let killTimer
     const timer = setTimeout(() => {
       timedOut = true
       kill("SIGTERM")
       killTimer = setTimeout(() => kill("SIGKILL"), 2000)
     }, timeoutMs)
+    const onAbort = () => { aborted = true; kill("SIGTERM"); killTimer = setTimeout(() => kill("SIGKILL"), 2000) }
+    signal?.addEventListener("abort", onAbort, { once: true })
+    const cleanup = () => { clearTimeout(timer); clearTimeout(killTimer); signal?.removeEventListener("abort", onAbort) }
     const collect = chunk => { output = (output + chunk.toString()).slice(-16000) }
     child.stdout?.on("data", collect)
     child.stderr?.on("data", collect)
-    child.on("error", error => { clearTimeout(timer); clearTimeout(killTimer); reject(error) })
+    child.on("error", error => { cleanup(); reject(error) })
     child.on("close", code => {
-      clearTimeout(timer); clearTimeout(killTimer)
-      if (timedOut || code !== 0) reject(new Error(timedOut ? `${command} 执行超时` : `${command} 执行失败：${output}`))
+      cleanup()
+      if (aborted || timedOut || code !== 0) reject(new Error(aborted ? "媒体处理已取消" : timedOut ? `${command} 执行超时` : `${command} 执行失败：${output}`))
       else resolve({ code, output })
     })
   })

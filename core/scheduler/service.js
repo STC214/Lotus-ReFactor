@@ -1,5 +1,6 @@
 import fs from "node:fs/promises"
 import path from "node:path"
+import { randomUUID } from "node:crypto"
 import { loadGlobalConfig } from "../config/global.js"
 import { listAllProfiles } from "../config/profile.js"
 import { resolveData } from "../path.js"
@@ -16,11 +17,18 @@ export class SchedulerService {
     const file = this.planPath(date)
     if (!options.force) {
       const existing = await readPlan(file)
-      if (existing) return existing
+      if (existing && !options.reconcile) return existing
+      if (existing) {
+        const config = this.config || (await loadGlobalConfig()).scheduler
+        const profiles = options.profiles || await listAllProfiles({ skipInvalid: true })
+        const plan = this.reconcilePlan(existing, { profiles, config })
+        if (JSON.stringify(plan) !== JSON.stringify(existing)) await this.savePlan(plan)
+        return plan
+      }
     }
 
     const config = this.config || (await loadGlobalConfig()).scheduler
-    const profiles = options.profiles || await listAllProfiles()
+    const profiles = options.profiles || await listAllProfiles({ skipInvalid: true })
     const plan = this.generatePlan({
       date,
       profiles,
@@ -98,7 +106,8 @@ export class SchedulerService {
     }
 
     const now = options.now || new Date()
-    if (date === dateString(now) && minuteOfDay(now) > parseTime(scheduler.late_registration.window_end)) {
+    const mode = resolveProfileScheduleMode(profile, scheduler)
+    if (mode === "random" && date === dateString(now) && minuteOfDay(now) > parseTime(scheduler.late_registration.window_end)) {
       return {
         ok: false,
         date,
@@ -108,7 +117,7 @@ export class SchedulerService {
     }
 
     const lateCount = plan.entries.filter(entry => entry.mode === "late_random").length
-    const entry = createLateEntry(profile, scheduler, lateCount, now)
+    const entry = mode === "fixed" ? createEntry(profile, fixedProfileTime(profile, scheduler), "fixed") : createLateEntry(profile, scheduler, lateCount, now)
     plan.entries.push(entry)
     plan.entries.sort((a, b) => a.time.localeCompare(b.time) || a.qq.localeCompare(b.qq) || a.profileId - b.profileId)
     await this.savePlan(plan)
@@ -131,7 +140,7 @@ export class SchedulerService {
       if (mode === "random") {
         randomProfiles.push(profile)
       } else {
-        fixedEntries.push(createEntry(profile, profile.schedule?.fixed_time || scheduler.fixed_time, "fixed"))
+        fixedEntries.push(createEntry(profile, fixedProfileTime(profile, scheduler), "fixed"))
       }
     }
 
@@ -148,6 +157,36 @@ export class SchedulerService {
       entries,
     }
   }
+
+  reconcilePlan(existing, { profiles = [], config = {}, now = new Date() } = {}) {
+    const generated = this.generatePlan({ date: existing.date, profiles, config })
+    const scheduler = normalizeSchedulerConfig(config)
+    let lateCount = existing.entries.filter(entry => entry.mode === "late_random").length
+    const key = entry => `${entry.qq}:${Number(entry.profileId || 1)}`
+    const previous = new Map(existing.entries.map(entry => [key(entry), entry]))
+    const entries = generated.entries.map(entry => {
+      const current = previous.get(key(entry))
+      if (!current) {
+        if (entry.mode !== "random") return entry
+        if (!scheduler.late_registration.enable || existing.date === dateString(now) && minuteOfDay(now) > parseTime(scheduler.late_registration.window_end)) return null
+        const profile = profiles.find(profile => String(profile.user?.qq || "") === entry.qq && Number(profile.profile?.id || 1) === Number(entry.profileId))
+        return createLateEntry(profile, scheduler, lateCount++, now)
+      }
+      previous.delete(key(entry))
+      if (current.done || current.runningAt) return current
+      // Keep the day's already assigned random slots stable across restarts.
+      if (entry.mode === "random" && ["random", "late_random"].includes(current.mode)) return current
+      if (entry.mode === current.mode && entry.time === current.time) return current
+      return entry
+    }).filter(Boolean)
+    entries.push(...[...previous.values()].filter(entry => entry.done || entry.runningAt))
+    entries.sort((a, b) => a.time.localeCompare(b.time) || a.qq.localeCompare(b.qq) || a.profileId - b.profileId)
+    return { ...existing, mode: generated.mode, window: generated.window, entries }
+  }
+}
+
+function fixedProfileTime(profile, scheduler) {
+  return profile.schedule?.mode === "fixed" && profile.schedule.fixed_time ? profile.schedule.fixed_time : scheduler.fixed_time
 }
 
 export function isProfileCheckinEnabled(profile) {

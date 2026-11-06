@@ -41,6 +41,19 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
     background_max_bytes: 20971520,
     super_resolution_preset: "off",
   },
+  coin_shop: {
+    enable: true,
+    mode: "auto",
+    host: "127.0.0.1",
+    port: 18164,
+    path: "/lotus/coin-shop",
+    public_url: "",
+    icp_number: "",
+    session_hours: 8,
+    panel_session_hours: 24,
+    ticket_minutes: 10,
+    panel_ticket_minutes: 10,
+  },
   scheduler: {
     plan_generate_cron: "0 0 0 * * ? *",
     plan_date_cutoff_time: "13:00",
@@ -80,10 +93,12 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
     test_nine: {
       enable: true,
       auto_start: true,
-      endpoint: "http://127.0.0.1:9645/pass_uni",
-      timeout_ms: 20000,
       submodule_path: "test_nine",
       venv_path: "data/python/test_nine_venv",
+      install_requirements: true,
+      download_models: true,
+      endpoint: "http://127.0.0.1:9645/pass_uni",
+      timeout_ms: 60000,
       model_dir: "data/test_nine/model",
       model_repo: "luguoyixiazi/model_save",
       model_files: [
@@ -93,21 +108,20 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
         "dinov3-small.onnx",
         "atten.onnx",
       ],
-      install_requirements: true,
-      download_models: true,
     },
     ttocr: {
       enable: false,
       api: "http://api.ttocr.com/api/recognize",
       resapi: "http://api.ttocr.com/api/results",
       key: "",
+      itemid_v4: 488,
       query: "itemid=388&referer=https://webstatic.mihoyo.com/",
-      poll_interval_ms: 1000,
+      poll_interval_ms: 2000,
       timeout_ms: 60000,
     },
     gtmanual: {
       enable: true,
-      address: "https://gt.lotusshared.cn/",
+      internal_enable: true,
       verify_addr: "https://gt.lotusshared.cn/GTest/register?key=114514",
       timeout_ms: 180000,
       poll_interval_ms: 1500,
@@ -171,7 +185,9 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
     search_limit: 10,
     download: {
       enable: true,
+      concurrency: 4,
       use_aria2: true,
+      extra_args: [],
       tools_path: "data/tools/bin",
       resolution: 64,
       duration_limit_seconds: 3600,
@@ -181,7 +197,6 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
       cache_enable: false,
       cache_ttl_seconds: 0,
       timeout_ms: 600000,
-      extra_args: [],
     },
     cleanup: {
       enable: true,
@@ -219,6 +234,16 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
   tuneweave: {
     api_url: "http://127.0.0.1:7832",
     request_timeout_ms: 30000,
+    update_delay_ms: 180000,
+  },
+  music: {
+    enable: true,
+    default_platform: "netease",
+    quality: "standard",
+    search_limit: 10,
+    session_timeout_ms: 120000,
+    download_timeout_ms: 180000,
+    max_size_mb: 128,
   },
   netease_partner: {
     enable: false,
@@ -230,6 +255,15 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
     delay_ms_min: 8000,
     delay_ms_max: 11000,
     comments: ["打卡支持"],
+    review: {
+      mode: "fixed",
+      max_chars: 140,
+      timeout_ms: 180000,
+      codex_command: "codex",
+      model: "",
+      api_url: "https://api.openai.com/v1/responses",
+      api_key: "",
+    },
   },
   logging: {
     retention_days: 14,
@@ -285,9 +319,6 @@ export const DEFAULT_GLOBAL_CONFIG = Object.freeze({
         policy: "master_only",
       },
       "scheduler.manage": {
-        policy: "master_only",
-      },
-      "permissions.manage": {
         policy: "master_only",
       },
       "remote.spawn": {

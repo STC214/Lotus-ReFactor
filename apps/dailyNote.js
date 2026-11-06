@@ -1,3 +1,6 @@
+import { ZZZ_COMMAND_PREFIX } from "../core/intercept/game-prefix.js"
+import { isAccountChangedError } from "../core/login/refresh.js"
+import { createRequestCaptchaReporter } from "../core/captcha/notify.js"
 const BasePlugin = globalThis.plugin
 
 import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
@@ -33,7 +36,7 @@ export class LotusDailyNote extends BasePlugin {
           fnc: "genshinDailyNote",
         },
         {
-          reg: `^#?(体力|树脂|查询体力|便笺|便签)${PROFILE_ID_SUFFIX_PATTERN}$`,
+          reg: `^#?(?:原神)?(体力|树脂|查询体力|便笺|便签)${PROFILE_ID_SUFFIX_PATTERN}$`,
           fnc: "genshinDailyNote",
         },
         {
@@ -41,11 +44,11 @@ export class LotusDailyNote extends BasePlugin {
           fnc: "starRailDailyNote",
         },
         {
-          reg: `^#星铁体力${PROFILE_ID_SUFFIX_PATTERN}$`,
+          reg: `^#星铁(?:体力|开拓力|便笺|便签|note|每日)${PROFILE_ID_SUFFIX_PATTERN}$`,
           fnc: "starRailDailyNote",
         },
         {
-          reg: `^%体力${PROFILE_ID_SUFFIX_PATTERN}$`,
+          reg: `^${ZZZ_COMMAND_PREFIX}(?:体力|note|每日|便笺|便签)${PROFILE_ID_SUFFIX_PATTERN}$`,
           fnc: "zzzDailyNote",
         },
         {
@@ -73,6 +76,7 @@ export class LotusDailyNote extends BasePlugin {
   }
 
   async replyDailyNote(games) {
+    const onCaptchaEvent = createRequestCaptchaReporter(this.e)
     const userId = String(this.e.user_id)
     const hasSuffix = /\d+$/.test(String(this.e.msg || ""))
     const profileId = hasSuffix ? parseProfileIdFromMessage(this.e.msg) : null
@@ -82,11 +86,14 @@ export class LotusDailyNote extends BasePlugin {
       : "[荷花插件]正在查询当前 QQ 的所有 profile 体力。")
 
     const service = new DailyNoteService()
-    const results = await service.collect({
-      qq: userId,
-      profileId,
-      games,
-    })
+    let results
+    try {
+      results = await service.collect({ qq: userId, profileId, games, onCaptchaEvent })
+    } catch (error) {
+      if (!isAccountChangedError(error)) throw error
+      await replyText(this, "[荷花插件]登录状态已变化，本次体力查询已停止，请重新发送原指令。")
+      return true
+    }
 
     if (!results.length) {
       await replyText(this, "[荷花插件]没有找到可查询的 profile，请先扫码登录并同步 UID。")

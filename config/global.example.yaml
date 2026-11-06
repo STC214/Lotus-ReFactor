@@ -62,10 +62,12 @@ captcha:
   test_nine:
     enable: true
     auto_start: true
-    endpoint: http://127.0.0.1:9645/pass_uni
-    timeout_ms: 20000
+    download_models: true
+    install_requirements: true
     submodule_path: test_nine
     venv_path: data/python/test_nine_venv
+    endpoint: http://127.0.0.1:9645/pass_uni
+    timeout_ms: 60000
     model_dir: data/test_nine/model
     model_repo: luguoyixiazi/model_save
     model_files:
@@ -74,19 +76,18 @@ captcha:
       - yolo11n.onnx
       - dinov3-small.onnx
       - atten.onnx
-    install_requirements: true
-    download_models: true
   ttocr:
     enable: false
     api: http://api.ttocr.com/api/recognize
     resapi: http://api.ttocr.com/api/results
     key: ""
     query: itemid=388&referer=https://webstatic.mihoyo.com/
+    itemid_v4: 488
     poll_interval_ms: 1000
     timeout_ms: 60000
   gtmanual:
     enable: true
-    address: https://gt.lotusshared.cn/
+    internal_enable: true
     verify_addr: https://gt.lotusshared.cn/GTest/register?key=114514
     timeout_ms: 180000
     poll_interval_ms: 1500
@@ -148,6 +149,7 @@ bilibili:
   search_limit: 10
   download:
     enable: true
+    concurrency: 4
     use_aria2: true
     tools_path: data/tools/bin
     resolution: 64
@@ -190,6 +192,15 @@ groups:
 tuneweave:
   api_url: http://127.0.0.1:7832
   request_timeout_ms: 30000
+  update_delay_ms: 180000
+music:
+  enable: true
+  default_platform: netease
+  quality: standard
+  search_limit: 10
+  session_timeout_ms: 120000
+  download_timeout_ms: 180000
+  max_size_mb: 128
 netease_partner:
   enable: false
   schedule: "0 5 0 * * ? *"
@@ -201,9 +212,14 @@ netease_partner:
   delay_ms_max: 11000
   comments:
     - 打卡支持
-logging:
-  retention_days: 14
-  redact_sensitive: true
+  review:
+    mode: fixed # fixed / responses / codex
+    max_chars: 140 # 保守生成限制，可设置 20～500；不是平台已确认的硬性上限
+    timeout_ms: 180000
+    codex_command: codex
+    model: ""
+    api_url: https://api.openai.com/v1/responses
+    api_key: ""
 atlas:
   data_root: data/atlas
   locale: 简体中文
@@ -289,8 +305,6 @@ permissions:
       policy: master_only
     scheduler.manage:
       policy: master_only
-    permissions.manage:
-      policy: master_only
     remote.spawn:
       policy: master_only
     remote.upload:
@@ -317,3 +331,17 @@ permissions:
       policy: master_only
     netease.partner:
       policy: master_only
+
+# 米游币兑换网页：auto 优先共用 TRSS HTTP 服务，否则启用独立端口。
+coin_shop:
+  enable: true
+  mode: auto
+  host: 127.0.0.1
+  port: 18164
+  path: /lotus/coin-shop
+  public_url: ""
+  icp_number: "" # 本站 ICP 备案号；留空不显示
+  session_hours: 8
+  panel_session_hours: 24
+  ticket_minutes: 10
+  panel_ticket_minutes: 10

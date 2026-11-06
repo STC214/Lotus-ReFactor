@@ -7,18 +7,19 @@ import { formatLocalIso } from "../../core/time.js"
 import { notifyProfile } from "../../core/transport/notify.js"
 import { ProfileSigninService, renderSigninFailure } from "./profileSignin.js"
 
-const scheduleTasks = new Map()
-const planTasks = new Map()
+const taskState = globalThis[Symbol.for("lotus-plugin.scheduled-signin-tasks")] ||= { schedules: new Map(), plans: new Map() }
+const scheduleTasks = taskState.schedules
+const planTasks = taskState.plans
 
 export class ScheduledSigninService {
   constructor(options = {}) {
     this.scheduler = options.scheduler || new SchedulerService(options)
     this.signin = options.signin || new ProfileSigninService(options)
     this.notify = options.notify || notifyProfile
+    this.loadProfile = options.loadProfile || loadProfile
     this.bot = options.bot
     this.now = options.now || (() => new Date())
     this.renderTemplate = options.renderTemplate || renderTemplate
-    this.loadProfile = options.loadProfile || loadProfile
   }
 
   async runDue(options = {}) {
@@ -277,6 +278,7 @@ export class ScheduledSigninService {
     return runScheduleTask(`tomorrow-plan:${date}`, () => runPlanTask(date, async () => {
       const plan = await this.scheduler.getOrCreatePlan(date, {
         force: options.force,
+        reconcile: true,
       })
       const shouldNotify = options.forceNotify || config.scheduler?.random?.notify_before !== false
       const notifications = shouldNotify ? await this.notifyPlan(plan, options) : []

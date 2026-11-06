@@ -13,10 +13,10 @@ test("star rail render uses a temporary identity and removes it on success and f
   class Renderer { async renderImg() { return "image" } }
   const bridge = new StarRailGachaDisplayBridge({ storageRoot: root, loadGachaLog: async () => Log, loadGcLogApp: async () => Renderer })
   try {
-    assert.equal((await bridge.render({ e: {}, uid: "100000001", data: sample })).image, "image")
+    assert.equal((await bridge.render({ e: {}, uid: "100000001", data: sample, viewMessage: "#星铁全部记录" })).image, "image")
     assert.deepEqual(await fs.readdir(root), [])
     bridge.loadGcLogApp = async () => class { async renderImg() { throw new Error("render failed") } }
-    await assert.rejects(() => bridge.render({ e: {}, uid: "100000001", data: sample }), /render failed/)
+    await assert.rejects(() => bridge.render({ e: {}, uid: "100000001", data: sample, viewMessage: "#星铁全部记录" }), /render failed/)
     assert.deepEqual(await fs.readdir(root), [])
   } finally { await fs.rm(root, { recursive: true, force: true }) }
 })

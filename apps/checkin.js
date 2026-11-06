@@ -1,7 +1,7 @@
 const BasePlugin = globalThis.plugin
 
 import { LOTUS_INTERCEPT_PRIORITY } from "../core/intercept/priority.js"
-import { replyCaptchaEvent } from "../core/captcha/notify.js"
+import { createRequestCaptchaReporter } from "../core/captcha/notify.js"
 import {
   loadProfile,
   parseProfileIdFromMessage,
@@ -9,9 +9,9 @@ import {
 } from "../core/config/profile.js"
 import { renderStatusCard } from "../core/render/service.js"
 import { replyImage, replyText } from "../core/transport/reply.js"
+import { ProfileSigninService } from "../services/checkin/profileSignin.js"
 import { loadGlobalConfig } from "../core/config/global.js"
 import { PythonEnvService } from "../services/python/env.js"
-import { ProfileSigninService } from "../services/checkin/profileSignin.js"
 import { TestNineEnvService } from "../services/testNine/env.js"
 import { ToolInstallerService } from "../services/tools/installer.js"
 
@@ -23,10 +23,7 @@ export class LotusCheckin extends BasePlugin {
       event: "message",
       priority: LOTUS_INTERCEPT_PRIORITY,
       rule: [
-        {
-          reg: "^#初始化签到环境$",
-          fnc: "initSigninEnv",
-        },
+        { reg: "^#初始化签到环境$", fnc: "initSigninEnv" },
         {
           reg: `^#((测试|开始|手动)签到|补签)${PROFILE_ID_SUFFIX_PATTERN}$`,
           fnc: "runSignin",
@@ -108,8 +105,8 @@ export class LotusCheckin extends BasePlugin {
     }
     return true
   }
-
   async runSignin() {
+    const onCaptchaEvent = createRequestCaptchaReporter(this.e)
     const userId = String(this.e.user_id)
     const profileId = parseProfileIdFromMessage(this.e.msg)
     let profile
@@ -135,10 +132,7 @@ export class LotusCheckin extends BasePlugin {
         qq: userId,
         profileId,
         profile,
-        installRequirements: false,
-        onCaptchaEvent: async event => {
-          await replyCaptchaEvent(this, event)
-        },
+        onCaptchaEvent,
       })
       await replyImage(this, outcome.image, outcome.ok
         ? `[荷花插件]profile ${profileId} 签到完成。`
@@ -152,8 +146,8 @@ export class LotusCheckin extends BasePlugin {
         message: error.message,
         userId,
         items: [
-          { label: "阶段", value: "MihoyoBBSTools runner" },
-          { label: "建议", value: "先执行 #初始化签到环境，确认 profile 登录态和设备信息。" },
+          { label: "阶段", value: "米游社 JS 任务" },
+          { label: "建议", value: "先执行 #初始化环境，确认 profile 登录态和设备信息。" },
         ],
       }, {
         saveId: `lotus-checkin-error-${userId}-${profileId}`,

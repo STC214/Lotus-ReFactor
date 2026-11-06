@@ -52,12 +52,17 @@ export function createIsolatedEvent(baseEvent, patch = {}) {
 
   const event = {
     ...baseEvent,
+    // Yunzai defines isMaster as a non-enumerable computed permission. Keep the
+    // target event's result when building a profile-scoped bridge event.
+    isMaster: baseEvent?.isMaster === true,
     ...patch,
-    reply: async payload => {
-      messages.push(summarizeReply(payload))
-      if (forwardReplies && shouldForwardReply(payload) && baseReply) {
-        forwarded.push(summarizeReply(payload))
-        return baseReply(payload)
+    reply: async (payload, ...args) => {
+      const clean = cleanBridgeReply(payload)
+      if (clean === null) return true
+      messages.push(summarizeReply(clean))
+      if (forwardReplies && shouldForwardReply(clean) && baseReply) {
+        forwarded.push(summarizeReply(clean))
+        return baseReply(clean, ...args)
       }
       return true
     },
@@ -75,14 +80,41 @@ export function summarizeReply(payload) {
   if (Array.isArray(payload)) return payload.map(summarizeReply).filter(Boolean).join("\n")
   if (typeof payload === "string") return payload
   if (payload?.type === "image") return "[图片]"
-  if (payload?.type === "button") return "[按钮]"
+  if (["node", "forward"].includes(payload?.type)) return "[合并转发]"
+  if (["button", "keyboard"].includes(payload?.type)) return ""
+  if (payload?.type === "text") return String(payload.text ?? payload.data?.text ?? "")
   if (payload?.file) return "[文件]"
   return payload ? "[消息]" : ""
 }
 
+// Only filter bridge-generated control segments; ordinary message text is kept.
+export function cleanBridgeReply(payload) {
+  if (Array.isArray(payload)) {
+    const clean = payload.map(cleanBridgeReply).filter(item => item !== null)
+    return clean.length ? clean : null
+  }
+  if (["button", "keyboard"].includes(payload?.type)) return null
+  if (payload?.type === "node") {
+    const data = Array.isArray(payload.data)
+      ? payload.data.map(cleanForwardNode).filter(Boolean)
+      : cleanForwardNode(payload.data)
+    return data && (!Array.isArray(data) || data.length) ? { ...payload, data } : null
+  }
+  return payload
+}
+
+function cleanForwardNode(node) {
+  if (!node || typeof node !== "object") return node
+  if (node.type) return cleanBridgeReply(node)
+  const result = { ...node }
+  const fields = ["message", "content"].filter(key => key in node)
+  for (const key of fields) result[key] = cleanBridgeReply(node[key])
+  return fields.length && fields.every(key => result[key] === null) ? null : result
+}
+
 export function shouldForwardReply(payload) {
   if (Array.isArray(payload)) return payload.some(shouldForwardReply)
-  return payload?.type === "image" || typeof payload?.file === "string"
+  return ["image", "node", "forward"].includes(payload?.type) || typeof payload?.file === "string"
 }
 
 export async function importRuntimeModule(pluginName, ...segments) {

@@ -1,16 +1,44 @@
 import { registerProfileWithGenshin } from "../genshinBridge/profile.js"
 import { createMiaoProfileEvent } from "./miaoPanel.js"
 import { importRuntimeModule } from "./common.js"
+import { withMysRequestProfile } from "../intercept/mys-request-context.js"
 
 export class MiaoProfileQueryBridge {
   constructor(options = {}) {
     this.registerProfile = options.registerProfile || registerProfileWithGenshin
+    this.loadProfileArtis = options.loadProfileArtis || loadProfileArtis
+    this.loadProfileRank = options.loadProfileRank || loadProfileRank
     this.loadProfileList = options.loadProfileList || loadProfileList
     this.loadProfileDetail = options.loadProfileDetail || loadProfileDetail
     this.loadProfileStat = options.loadProfileStat || loadProfileStat
     this.loadAbyssSummary = options.loadAbyssSummary || loadAbyssSummary
     this.loadRoleCombatSummary = options.loadRoleCombatSummary || loadRoleCombatSummary
     this.loadHardChallengeSummary = options.loadHardChallengeSummary || loadHardChallengeSummary
+  }
+
+  async refreshTalent(options = {}) {
+    const ProfileStat = await this.loadProfileStat()
+    return this.run(options, event => ProfileStat.refreshTalent(event))
+  }
+
+  async reloadProfile(options = {}) {
+    const ProfileList = await this.loadProfileList()
+    return this.run(options, event => ProfileList.reload(event))
+  }
+
+  async deleteProfile(options = {}) {
+    const ProfileList = await this.loadProfileList()
+    return this.run(options, event => ProfileList.del(event))
+  }
+
+  async artisList(options = {}) {
+    const fn = await this.loadProfileArtis()
+    return this.run(options, event => fn(event))
+  }
+
+  async groupRank(options = {}) {
+    const fn = await this.loadProfileRank()
+    return this.run(options, event => fn(event))
   }
 
   async profileList(options = {}) {
@@ -35,7 +63,7 @@ export class MiaoProfileQueryBridge {
 
   async talentStat(options = {}) {
     const ProfileStat = await this.loadProfileStat()
-    return this.run(options, event => ProfileStat.render(event, "talent", false))
+    return this.run(options, event => ProfileStat.stat(event))
   }
 
   async roleCombatStat(options = {}) {
@@ -68,7 +96,7 @@ export class MiaoProfileQueryBridge {
       forwardReplies,
       registerProfile: this.registerProfile,
     })
-    await handler(context.event)
+    await withMysRequestProfile(profile, () => handler(context.event))
     return {
       ok: true,
       game,
@@ -108,4 +136,12 @@ async function loadRoleCombatSummary() {
 async function loadHardChallengeSummary() {
   const mod = await importRuntimeModule("miao-plugin", "apps", "stat", "HardChallengeSummary.js")
   return mod.HardChallengeSummary
+}
+
+async function loadProfileArtis() {
+  return (await importRuntimeModule("miao-plugin", "apps", "profile", "ProfileArtis.js")).profileArtisList
+}
+
+async function loadProfileRank() {
+  return (await importRuntimeModule("miao-plugin", "apps", "profile", "ProfileRank.js")).groupRank
 }

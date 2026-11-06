@@ -1,10 +1,13 @@
 import fs from "node:fs/promises"
+import { ensureGeneratedProfileDevices } from "./core/devices/generated-profile.js"
+import { startGeneratedDeviceFpRefresh } from "./core/devices/runtime.js"
 import { installLotusRuntimeInterception } from "./services/intercept/runtime.js"
 import { ensureGlobalConfig } from "./core/config/global.js"
 import { autoStartTestNineServer } from "./services/testNine/server.js"
 import { ensureBackgroundPool } from "./core/render/background.js"
 import { applyWorkspacePolicy } from "./scripts/initialize-lotus.mjs"
-import { checkTrackedSubmoduleRemoteUpdates, syncTrackedSubmodules } from "./services/pluginUpdate/service.js"
+import { checkTrackedSubmoduleRemoteUpdates, notifySubmoduleSyncFailure, syncTrackedSubmodules } from "./services/pluginUpdate/service.js"
+import { startLoginCredentialRepair } from "./core/login/runtime.js"
 
 const pluginName = "Lotus-Plugin"
 const appsDir = new URL("./apps/", import.meta.url)
@@ -25,11 +28,16 @@ await ensureGlobalConfig().then(result => {
   logger?.warn?.(`[${pluginName}] global config init skipped: ${error.message}`)
 })
 
-// 只检查并通知，不在开机阶段自动改写子仓库，避免隐藏更新或阻塞启动。
 void checkTrackedSubmoduleRemoteUpdates({ config: startupConfig }).then(result => {
   if (result.updates?.length) logger?.warn?.(`[${pluginName}] ${result.message}`)
 }).catch(error => {
   logger?.debug?.(`[${pluginName}] submodule remote check skipped: ${error.message}`)
+})
+
+await ensureGeneratedProfileDevices().then(result => {
+  if (result.generated || result.failed || result.invalid) logger?.info?.(`[${pluginName}] 设备初始化：${result.generated} 个虚拟设备已保存，${result.failed + result.invalid} 个档案暂未处理`)
+}).catch(() => {
+  logger?.warn?.(`[${pluginName}] 虚拟设备初始化暂不可用，已保留原档案`)
 })
 
 await installLotusRuntimeInterception().catch(error => {
@@ -41,14 +49,15 @@ await syncTrackedSubmodules().then(result => {
     logger?.mark?.("[" + pluginName + "] " + result.message)
   } else if (!result.ok) {
     logger?.warn?.("[" + pluginName + "] submodule sync skipped: " + result.message)
+    void notifySubmoduleSyncFailure(result)
   }
 }).catch(error => {
-  logger?.debug?.("[" + pluginName + "] submodule sync skipped: " + error.message)
+  logger?.warn?.("[" + pluginName + "] submodule sync skipped: " + error.message)
+  void notifySubmoduleSyncFailure({ ok: false, message: "子模块启动同步异常。" })
 })
 
-autoStartTestNineServer().catch(error => {
-  logger?.warn?.(`[${pluginName}] test_nine auto start failed: ${error.message}`)
-})
+startLoginCredentialRepair()
+startGeneratedDeviceFpRefresh()
 
 ensureBackgroundPool(null, { cleanupExisting: true }).then(files => {
   logger?.mark?.(`[${pluginName}] 本地背景池就绪：${files.length} 张`)

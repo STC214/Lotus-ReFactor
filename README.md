@@ -75,6 +75,23 @@ Auto-Plugin 与角色攻略的当前共存方案、新角色攻略全量发现�
 - [misaka20002/siliconflow-plugin](https://github.com/misaka20002/siliconflow-plugin)：分享页面 SSR 数据提取思路参考。
 - [Evil0ctal/Douyin_TikTok_Download_API](https://github.com/Evil0ctal/Douyin_TikTok_Download_API)：近期平台签名规则及公开浏览器签名样本参考。
 - [HDTianRu/TianRu-plugin](https://github.com/HDTianRu/TianRu-plugin)
+- [Marchen-orz/MiyoQian](https://github.com/Marchen-orz/MiyoQian)
+- [kissnavel/genshin](https://github.com/kissnavel/genshin)
+- [MOPELotus/TuneWeave](https://github.com/MOPELotus/TuneWeave)
+- [xfdown/xiaofei-plugin](https://github.com/xfdown/xiaofei-plugin)
+- [SmallK111407/earth-k-plugin](https://github.com/SmallK111407/earth-k-plugin)
+- [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime)
+- [nilaoda/BBDown](https://github.com/nilaoda/BBDown)
+- [aria2/aria2](https://github.com/aria2/aria2)
+- [python-pillow/Pillow](https://github.com/python-pillow/Pillow)
+- [Ljzd-PRO/nonebot-plugin-mystool](https://github.com/Ljzd-PRO/nonebot-plugin-mystool)
+- [PaiGramTeam/SIMNet](https://github.com/paigramteam/simnet)
+- [taskmgr818/geetest-v3-click-server](https://github.com/taskmgr818/geetest-v3-click-server)
+- [MOPELotus/GT-Manual](https://github.com/MOPELotus/GT-Manual)
+- [Hlhs/GT-Manual](https://gitee.com/QQ1146638442/GT-Manual)
+- [UIGF-org/mihoyo-api-collect](https://github.com/UIGF-org/mihoyo-api-collect)
+- [Android Open Source Project](https://source.android.com/)
+- [Google Pixel 固件透明日志](https://developers.google.com/android/binary_transparency/image_info.txt)
 
 抖音签名及业务实现由 Lotus 独立编写；参考平台参数、协议规则和数据结构，不复制或逐行翻译上述项目的功能代码。
 

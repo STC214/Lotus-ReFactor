@@ -27,11 +27,6 @@ export async function renderTemplate(templateName, data = {}, options = {}) {
     generatedAt: formatLocalDateTime(),
     ...data,
     bg,
-    backgrounds: Array.isArray(data.backgrounds) && data.backgrounds.length
-      ? data.backgrounds
-      : bg
-        ? [bg]
-        : [],
     backgroundProvider,
     fontPath,
   }

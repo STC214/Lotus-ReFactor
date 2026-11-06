@@ -1,3 +1,6 @@
+import { ZZZ_COMMAND_PREFIX } from "../core/intercept/game-prefix.js"
+import { createProfileRequestGuard } from "../core/login/requestGuard.js"
+import { createRequestCaptchaReporter } from "../core/captcha/notify.js"
 const BasePlugin = globalThis.plugin
 
 import path from "node:path"
@@ -21,6 +24,7 @@ import {
 import { ZzzGachaBridge } from "../services/pluginBridge/zzzGacha.js"
 import { GenshinGachaDisplayBridge } from "../services/pluginBridge/genshinGacha.js"
 import { StarRailGachaDisplayBridge } from "../services/pluginBridge/starRailGacha.js"
+import { normalizeGachaView } from "../services/pluginBridge/miaoGacha.js"
 import { StarRailGachaService } from "../services/starRailGacha/service.js"
 import { MiniappGachaService } from "../services/miniappGacha/service.js"
 
@@ -45,7 +49,15 @@ export class LotusGachaLog extends BasePlugin {
           fnc: "genshinGachaLog",
         },
         {
-          reg: `^#(原神)?(全部)?(抽卡|抽奖|角色|武器|集录|常驻|up|新手|全部)池*(记录|祈愿|分析)${PROFILE_ID_SUFFIX_PATTERN}$`,
+          reg: `^#(?:原神)?(?:喵喵)?版本(?:全部)?统计${PROFILE_ID_SUFFIX_PATTERN}$`,
+          fnc: "genshinGachaView",
+        },
+        {
+          reg: `^(?:[*]|#星铁)(?:喵喵)?版本(?:全部)?统计${PROFILE_ID_SUFFIX_PATTERN}$`,
+          fnc: "starRailGachaView",
+        },
+        {
+          reg: `^#(?:原神)?(?:喵喵)?(?:(?:全部)?(?:抽卡|抽奖|角色|武器|集录|常驻|up|新手)池?(?:全部)?|全部)(?:记录|祈愿|分析|统计)${PROFILE_ID_SUFFIX_PATTERN}$`,
           fnc: "genshinGachaView",
         },
         {
@@ -61,15 +73,11 @@ export class LotusGachaLog extends BasePlugin {
           fnc: "restoreStarRailLegacy",
         },
         {
-          reg: `^\\*(星铁)?(全部)?(抽卡|抽奖|角色|角色联动|光锥|光锥联动|常驻|新手|全部)池*(记录|祈愿|分析)${PROFILE_ID_SUFFIX_PATTERN}$`,
+          reg: `^(?:\\*|#星铁)(?:星铁)?(?:喵喵)?(?:(?:全部)?(?:角色联动|光锥联动|抽卡|抽奖|角色|光锥|武器|常驻|up|新手)池?(?:全部)?|全部)(?:记录|祈愿|分析|统计)${PROFILE_ID_SUFFIX_PATTERN}$`,
           fnc: "starRailGachaView",
         },
         {
-          reg: `^%更新抽卡记录${PROFILE_ID_SUFFIX_PATTERN}$`,
-          fnc: "zzzGachaLog",
-        },
-        {
-          reg: `^#(zzz|ZZZ|绝区零)(刷新|更新)抽卡(链接|记录)?${PROFILE_ID_SUFFIX_PATTERN}$`,
+          reg: `^${ZZZ_COMMAND_PREFIX}(刷新|更新)抽卡(链接|记录)?${PROFILE_ID_SUFFIX_PATTERN}$`,
           fnc: "zzzGachaLog",
         },
       ],
@@ -226,11 +234,12 @@ export class LotusGachaLog extends BasePlugin {
   }
 
   async zzzGachaLog() {
+    const e = this.e
     const userId = String(this.e.user_id)
     const profileId = parseProfileIdFromMessage(this.e.msg)
     try {
       await replyText(this, `[荷花插件]正在为 profile ${profileId} 更新绝区零抽卡记录。`)
-      const result = await this.runZzzGachaLog({ userId, profileId })
+      const result = await this.runZzzGachaLog({ userId, profileId, e })
       const image = await renderStatusCard({
         title: "绝区零抽卡记录",
         subtitle: `QQ ${userId} · Profile ${profileId} · UID ${result.uid}`,
@@ -330,6 +339,7 @@ export class LotusGachaLog extends BasePlugin {
   }
 
   async allGachaLogs() {
+    const e = this.e
     const userId = String(this.e.user_id)
     const profileIds = await listProfileIds(userId)
     if (!profileIds.length) {
@@ -351,7 +361,7 @@ export class LotusGachaLog extends BasePlugin {
         results.push({ ok: false, profileId, game: "sr", error: error.message })
       }
       try {
-        results.push(await this.runZzzGachaLog({ userId, profileId }))
+        results.push(await this.runZzzGachaLog({ userId, profileId, e }))
       } catch (error) {
         results.push({ ok: false, profileId, game: "zzz", error: error.message })
       }
@@ -378,13 +388,19 @@ export class LotusGachaLog extends BasePlugin {
     }
 
     const uid = String(role.uid || role.game_uid)
-    const auth = await new AuthKeyService().getAuthKey({
+    let guard = createProfileRequestGuard(profile)
+    const auth = await new AuthKeyService().getAuthKeyForProfile({
+      qq: String(userId),
+      profileId,
+      onRefreshedProfile: async updated => { guard = createProfileRequestGuard(updated); await guard?.() },
+      beforeRequest: async () => guard?.(),
       profile,
       game,
       uid,
       region: role.region || getServer(uid, game),
       authAppId: "webview_gacha",
     })
+    await guard?.()
     const url = buildGachaLogUrl(auth)
     const GachaLog = await loadGachaLogModel()
     const event = createGachaEvent(this.e, {
@@ -394,7 +410,9 @@ export class LotusGachaLog extends BasePlugin {
       messages,
     })
 
+    await guard?.()
     await new GachaLog(event).logUrl()
+    await guard?.()
     return {
       ok: true,
       profileId,
@@ -416,7 +434,8 @@ export class LotusGachaLog extends BasePlugin {
     })
   }
 
-  async runZzzGachaLog({ userId, profileId }) {
+  async runZzzGachaLog({ userId, profileId, e = this.e }) {
+    const onCaptchaEvent = createRequestCaptchaReporter(e)
     const profile = await loadProfile(userId, profileId)
     const role = pickRole(profile, "zzz")
     if (!role) {
@@ -428,7 +447,8 @@ export class LotusGachaLog extends BasePlugin {
       }
     }
     const result = await new ZzzGachaBridge().updateGachaLog({
-      e: this.e,
+      e,
+      onCaptchaEvent,
       profile,
       profileId,
     })
@@ -500,24 +520,11 @@ export function replyBatchGachaForward(target, summary = {}) {
 }
 
 function viewMessageForStarRail(message = "") {
-  const text = String(message).replace(/\d+$/, "")
-  if (/全部/.test(text)) return "#星铁全部记录"
-  if (/角色联动/.test(text)) return "#星铁角色联动记录"
-  if (/光锥联动/.test(text)) return "#星铁光锥联动记录"
-  if (/光锥/.test(text)) return "#星铁光锥记录"
-  if (/常驻/.test(text)) return "#星铁常驻记录"
-  if (/新手/.test(text)) return "#星铁新手记录"
-  return "#星铁角色记录"
+  return normalizeGachaView(message, "sr")
 }
 
 function viewMessageForGenshin(message = "") {
-  const text = String(message).replace(/\d+$/, "")
-  if (/全部/.test(text)) return "#原神全部记录"
-  if (/武器/.test(text)) return "#原神武器记录"
-  if (/集录/.test(text)) return "#原神集录记录"
-  if (/常驻/.test(text)) return "#原神常驻记录"
-  if (/新手/.test(text)) return "#原神新手记录"
-  return "#原神角色记录"
+  return normalizeGachaView(message, "gs")
 }
 
 export function translateGachaError(error) {

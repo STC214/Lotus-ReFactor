@@ -1,3 +1,5 @@
+import { normalizeZzzPrefix } from "../core/intercept/game-prefix.js"
+import { createRequestCaptchaReporter } from "../core/captcha/notify.js"
 const BasePlugin = globalThis.plugin
 
 import { PERSONAL_QUERY_RULES } from "../core/intercept/personal-query.js"
@@ -8,7 +10,7 @@ import {
   loadProfile,
   profileLoginRequiredMessage,
 } from "../core/config/profile.js"
-import { AccountService } from "../core/login/account.js"
+import { refreshAccountAndSync, isAccountChangedError } from "../core/login/refresh.js"
 import { renderStatusCard, renderTemplate } from "../core/render/service.js"
 import { replyImage, replyText } from "../core/transport/reply.js"
 import { splitProfileSuffix } from "../services/pluginBridge/common.js"
@@ -30,6 +32,12 @@ export class LotusProfileQuery extends BasePlugin {
     this.starRail = options.starRail || new StarRailChallengeService(options)
   }
 
+  async miaoRefreshTalent() { return this.runMiao("refreshTalent") }
+  async miaoReloadProfile() { return this.runMiao("reloadProfile") }
+  async miaoDeleteProfile() { return this.runMiao("deleteProfile") }
+  async miaoArtisList() { return this.runMiao("artisList") }
+  async miaoGroupRank() { return this.runMiao("groupRank") }
+  async zzzGachaView() { return this.runZzz("gachaLog") }
   async miaoProfileList() { return this.runMiao("profileList") }
   async miaoProfileDetail() { return this.runMiao("profileDetail") }
   async miaoProfileStat() { return this.runMiao("profileStat") }
@@ -56,7 +64,7 @@ export class LotusProfileQuery extends BasePlugin {
   async zzzExplorationDetail() { return this.runZzz("explorationDetail") }
   async zzzRank() {
     const parsed = splitProfileSuffix(this.e.msg)
-    const text = parsed.message.replace(/^(?:[%％](?:zzz|绝区零)?|[#/](?:zzz|绝区零)|(?:zzz|绝区零))/i, "").trim()
+    const text = normalizeZzzPrefix(parsed.message, "").trim()
     // 默认“排名”是纯面板分；明确写“综合榜”才使用加权分。
     // 兼容“面板/圣遗物/驱动盘”别名，并从角色名中剥离关键词。
     const character = text
@@ -75,7 +83,7 @@ export class LotusProfileQuery extends BasePlugin {
     const parsed = splitProfileSuffix(this.e.msg)
     if (!await this.shouldHandle(parsed)) return false
     const userId = String(this.e.user_id)
-    const game = fixedGame || miaoGameFromMessage(parsed.message)
+    const game = fixedGame || (method === "artisList" && /遗器/.test(parsed.message) ? "sr" : miaoGameFromMessage(parsed.message))
     return this.runProfileQuery({
       userId,
       profileId: parsed.profileId,
@@ -115,6 +123,7 @@ export class LotusProfileQuery extends BasePlugin {
   }
 
   async runStarRailChallenge() {
+    const onCaptchaEvent = createRequestCaptchaReporter(this.e)
     const parsed = splitProfileSuffix(this.e.msg)
     if (!await this.shouldHandle(parsed)) return false
     const profileId = parsed.hasProfileSuffix ? parsed.profileId : 1
@@ -127,6 +136,7 @@ export class LotusProfileQuery extends BasePlugin {
       command,
       runner: async profile => {
         const result = await this.starRail.queryProfile({
+          onCaptchaEvent,
           profile,
           profileId,
           command,
@@ -195,8 +205,9 @@ export function shouldTakeoverProfileQuery(parsed = {}, config = {}) {
 async function refreshProfileBeforeQuery(userId, profileId, profile) {
   if (!profile?.account?.stoken) return profile
   try {
-    return await new AccountService().refresh(userId, profileId)
+    return await refreshAccountAndSync(userId, profileId, { expectedProfile: profile })
   } catch (error) {
+    if (isAccountChangedError(error)) throw error
     logger?.debug?.(`[Lotus-Plugin] profile query pre-refresh skipped: ${error.message}`)
     return profile
   }
@@ -208,7 +219,8 @@ function miaoGameFromMessage(message = "") {
 }
 
 function normalizeMiaoCommand(message = "", game = "gs", method = "") {
-  const text = String(message || "").trim()
+  let text = String(message || "").trim().replace(/^#原神/, "#")
+  if (method === "talentStat") text = text.replace(/行迹/g, "天赋")
   if (text.startsWith("*")) return `#星铁${text.replace(/^\*+/, "")}`
   if (game === "sr" && text.startsWith("#") && !/^#星铁/.test(text)) return text.replace(/^#/, "#星铁")
   const command = text.replace(/^#原神/, "#").replace(/^#(喵喵)?当期/, "#$1本期")
@@ -222,10 +234,7 @@ function normalizeMiaoCommand(message = "", game = "gs", method = "") {
 }
 
 function normalizeZzzCommand(message = "") {
-  const text = String(message || "").trim()
-    .replace(/^％/, "%")
-    .replace(/^(?:[#/](?:zzz|绝区零)|(?:zzz|绝区零))/i, "%")
-    .replace(/^%(?:zzz|绝区零)/i, "%")
+  const text = normalizeZzzPrefix(message, "%")
     .replace(/^%(?:本期|当期)/, "%")
     .replace(/式舆防卫(?!(?:战))/, "式舆防卫战")
   // ZZZ-Plugin 的 rulePrefix 要求命令带 zzz/绝区零 标识；Lotus 对外

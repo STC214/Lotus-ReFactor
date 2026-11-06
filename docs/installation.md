@@ -382,12 +382,24 @@ https://github.com/MOPELotus/Lotus-ReFactor
 ```
 
 不要在同一个 `plugins/Lotus-Plugin` 工作树里混用两个仓库的文件；切换来源前先备份 `config/` 与 `data/`。
+本地验证码的 `onnxruntime-node` 使用包内自带的 CPU 运行库，无需 CUDA。Linux x64 安装脚本可能额外下载 CUDA 组件，可在安装时设置环境变量 `ONNXRUNTIME_NODE_INSTALL=skip` 跳过，例如 `ONNXRUNTIME_NODE_INSTALL=skip pnpm install`；这不会关闭图片渲染所用的显卡。
 
 如果 clone 时没有拉子模块：
 
 ```bash
 git submodule update --init --recursive
 ```
+
+## 子模块
+当前子模块包含图鉴后端 `nanoka-atlas-backend`、人工验证服务 `gt-manual`，以及本地兼容入口保留的 `MihoyoBBSTools`、`test_nine`。启动同步仅定位仓库指定的提交，不追踪子模块远端最新版本。有本地改动时保留现场；独立的远端检查只通知更新。
+
+## 首次启动与旧版升级
+
+安装依赖并重启机器人后，默认延迟三分钟检查环境。保留 `tools.auto_install`、`captcha.test_nine.enable/auto_start/download_models` 控制；关闭的开关不会被自动维护强制打开。`#初始化环境` 用于立即检查或重试。B 站仍使用当前 BBDown 后端，Python 兼容环境不自动删除，详见[本次合并说明](upstream-merge-20261106.md)。
+
+从旧版升级前保存本地配置和 `data/`，通过 Git 更新源码，按宿主的 workspace 方式更新依赖并重启。账号、设备和设置会保留；外部识别服务、远程 TuneWeave 和其他外部环境由原部署方维护。签到和验证码无需 Python 或 venv。
+
+主人私聊发送 `#荷花管理面板` 获取独立配置页的限时链接；普通用户使用 `#米游社功能` 管理自己的 profile 与任务。具体入口、权限及有效期见 [网页说明](miyoushe.md)。
 
 ## 固定共存与末位兜底
 

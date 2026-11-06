@@ -140,7 +140,7 @@ test("CN profile keeps account cookie and refreshes it through AccountService", 
     accountService: {
       refresh: async () => {
         refreshCalls += 1
-        return { account: { cookie: "refreshed-cn-cookie" }, device: { id: "refreshed-device" } }
+        return { account: { stuid: "100", cookie: "refreshed-cn-cookie" }, device: { id: "old-device" } }
       },
     },
   })
@@ -160,6 +160,7 @@ test("CN profile keeps account cookie and refreshes it through AccountService", 
     profile: {
       account: {
         cookie: "old-cn-cookie",
+        stuid: "100",
         stoken: "cn-stoken",
         game_roles: { sr: [{ uid: "100000001", region: "prod_gf_cn" }] },
         current_uid: { sr: "100000001" },

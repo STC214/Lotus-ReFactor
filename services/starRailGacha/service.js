@@ -1,3 +1,4 @@
+import { refreshAccountAndSync } from "../../core/login/refresh.js"
 import crypto from "node:crypto"
 import fs from "node:fs/promises"
 import path from "node:path"
@@ -74,7 +75,7 @@ export class StarRailGachaService {
         throw new Error(`profile ${profileId} 国际服 cookie 已失效，请重新绑定国际服 cookie`, { cause: error })
       }
       if (!isLoginExpired(error) || !profile?.account?.stoken) throw error
-      const refreshed = await this.accountService.refresh(qq, profileId)
+      const refreshed = await refreshAccountAndSync(qq, profileId, { accountService: this.accountService, expectedProfile: profile })
       return {
         ...await this.updateByCookie({
           qq,
@@ -346,7 +347,6 @@ function normalizeLanguage(value, fallback) {
   const normalized = String(value || "").trim().toLowerCase().replaceAll("_", "-")
   return /^[a-z]{2,3}(?:-[a-z]{2,4})?$/.test(normalized) ? normalized : fallback
 }
-
 function normalizeLog(value, fallback = {}) {
   return value && typeof value === "object"
     ? { ...value, pools: value.pools && typeof value.pools === "object" ? value.pools : {} }

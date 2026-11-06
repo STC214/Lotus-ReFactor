@@ -32,14 +32,25 @@ test("two actual Douyin plugin instances send the same work to independent group
     return app
   })
   const tasks = apps.map((app, index) => app.handleWork(services[index], { id }, config, false))
-  while (waiting.filter(Boolean).length < 2) await new Promise(resolve => setTimeout(resolve, 1))
+  const waitFor = async condition => {
+    const deadline = Date.now() + 5000
+    while (!condition()) {
+      assert.ok(Date.now() < deadline, "media send did not reach expected state")
+      await new Promise(resolve => setTimeout(resolve, 1))
+    }
+  }
+  await waitFor(() => waiting.filter(Boolean).length === 1)
+  // Upstream now serializes identical content for a single bot to avoid QQ's
+  // internal upload-cache collision; the download/task ownership stays separate.
+  const first = events[0].groupId - 1
+  waiting[first]()
+  await tasks[first]
+  await waitFor(() => waiting.filter(Boolean).length === 2)
   assert.notEqual(events[0].file, events[1].file)
-  waiting[0]()
-  await tasks[0]
   assert.equal((await fs.readdir(root)).length, 1)
-  const stillSending = events.find(event => event.groupId === 2)
+  const stillSending = events[1]
   assert.deepEqual(await fs.readFile(stillSending.file), mp4)
-  waiting[1]()
-  await tasks[1]
+  waiting[1 - first]()
+  await tasks[1 - first]
   assert.deepEqual(await fs.readdir(root), [])
 })

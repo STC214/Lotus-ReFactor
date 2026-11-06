@@ -10,6 +10,7 @@
 - Lotus 不自动添加用户禁用项；重叠指令优先交给原插件处理，Lotus 以末位优先级提供兜底及 profile 扩展入口。升级时仅清理能识别为旧版 Lotus 自动生成的完整禁用名单，保留用户自选项和群配置。
 - 星铁使用 profile Cookie 登录官方抽卡统计活动，读取五星记录与各卡池抽数，不依赖 `authkey`。
 - 绝区零优先使用 CK 直刷；只有获取或刷新抽卡链接时才生成 `authkey`。
+- 自动生成 `authkey` 和星铁官方统计活动目前仅支持国服。海外或无法确认的分区会在请求前提示失败；绝区零保留海外 CK 直刷和手动导入海外官方抽卡链接，海外 CK 失败后不会向国服接口提交凭据。
 - 星铁记录以官方稳定记录 ID 增量合并；重复更新不会重复叠加，活动 token 和 Cookie 不落盘。
 - 星铁接口不提供完整三星、四星明细；Lotus 保存五星、累计已抽和当前垫抽，数据位于 `data/starRailGachaJson/<qq>/<uid>.json`。
 - 星铁会按 UID/角色区服选择请求族：国服使用 `account.cookie`、`hkrpg_cn` 与米游社接口；美服、欧服、亚服、港澳台服使用 `games.os.cookie`、`games.os.lang`、`hkrpg_global` 与 HoYoLAB 接口。国际服 Cookie 失效时会要求重新绑定，不会误调用国服刷新流程。
