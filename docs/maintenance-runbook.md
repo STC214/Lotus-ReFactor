@@ -8,7 +8,7 @@
 
 - 当前维护仓库：`STC214/Lotus-ReFactor`
 - 上游来源：`MOPELotus/Lotus-ReFactor`
-- 本机源码：`F:\Project\03_Game_Tools\Yunzai_Lotus\Lotus-ReFactor`
+- 本机源码：`F:\Project\03_Game_Tools\13_Yunzai_Lotus\Lotus-ReFactor`
 - Yunzai 容器名：`trss-yunzai`
 - LLBot 容器名：`llbot`
 - LLBot 当前验证镜像：`linyuchen/llbot:8.1.8`
@@ -613,7 +613,7 @@ docker logs --since 2h --timestamps llbot 2>&1 > /tmp/llbot.log
 ### 6.2 部署前
 
 ```powershell
-Set-Location F:\Project\03_Game_Tools\Yunzai_Lotus\Lotus-ReFactor
+Set-Location F:\Project\03_Game_Tools\13_Yunzai_Lotus\Lotus-ReFactor
 git status --short
 git diff --check
 node --check services\bilibili\service.js
