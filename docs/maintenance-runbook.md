@@ -697,3 +697,47 @@ docker restart trss-yunzai
 - 本地源码与容器修改文件哈希一致，并存在补丁、验证记录和可运行回滚。
 
 满足这些条件后停止继续改动，记录当前提交、配置摘要、验证时间和仍存在的外部服务告警。
+
+## 9. 2026-11-07 原生验证码自启复审
+
+本次原始基线为 `15495ee7261bbc38ec8a723025d51dd281c4fe16`。复审发现 `index.js` 仅导入 `autoStartTestNineServer`，没有在配置读取成功后调用。线上服务曾延迟恢复，但重启后未在验收窗口内就绪，不能将一次 `/healthz` 成功当作可靠自启的证据。
+
+### 9.1 最小修复
+
+在 `ensureGlobalConfig().then(...)` 成功分支内接上原有入口：
+
+```js
+void autoStartTestNineServer({ globalConfig: startupConfig }).then(state => {
+  if (state.skipped) return
+  if (state.ok && state.running) logger?.mark?.(`[${pluginName}] 本地验证码服务已自动启动`)
+  else if (!state.ok) logger?.warn?.(`[${pluginName}] 本地验证码自启暂未就绪：${state.reason || "unknown"}`)
+}).catch(error => {
+  logger?.warn?.(`[${pluginName}] 本地验证码自启失败：${error.message}`)
+})
+```
+
+- 非阻塞：不等待模型准备或监听就绪后才加载其他应用。
+- 不改配置：继续由已有 helper 检查 `enable` 和 `auto_start`，两个关闭开关均保留。
+- 配置读取失败时不调用，避免以默认值误启服务。
+- 复用已有生命周期单例，重复启动不会另占一个监听端口。
+- 准备失败只记录告警，既不阻断插件加载，也不改账号、模型或外部验证码设置。
+- 仅主动启动已配置的服务，不提交验证码、不执行付费操作或群消息测试。
+
+### 9.2 回归和重启验收
+
+新增 `test/native-captcha-startup.test.js` 七项集成用例，执行真实 `index.js` 函数体并替换外部边界，覆盖调用一次、非阻塞、异常/失败结果可观测、关闭开关、配置失败和子模块同步未完成时提前启动。先用旧版复现缺失调用，再修复至通过。
+
+```sh
+node --test test/native-captcha-startup.test.js
+node --test test/*.test.js tests/*.test.js
+node --check index.js
+git diff --check
+```
+
+完整测试由 224 项增加为 231 项。Windows 的原有 4 项平台跳过保持，Linux 容器应全部执行。正式验收须真实重启机器人、等待喵喵与 Lotus 加载、确认 QQ/OneBot 在线，再访问现有 loopback 服务 `/healthz`，要求 HTTP 200 且 `runtime` 为 `onnxruntime-node`；不能用独立测试进程代替机器人自启。
+
+### 9.3 与工作区策略的关系
+
+容器入口每次执行 `pnpm install --force`。工作区 `allowBuilds.onnxruntime-node` 显式设为 `false`，用于防止包管理器生成无效占位项；不会禁用既有原生运行库。该文件单独备份并校验，其余构建策略不变。两次真实重启后应保持同一文件哈希，验收脚本只能读取，不能在重启后修补文件来制造通过结果。
+
+所有改动、源码增量包、LF 补丁、原版/修复版测试的字面命令与输出、回滚入口留存在维护机 `NON_BLOG_PROJECTS/deploy/miao-update-20261107/review/lotus/`。私有运行配置与账号不进入公开 Git 仓库；回滚检测到后续改动时停止，不覆盖用户现场。

@@ -24,6 +24,13 @@ let startupConfig = {}
 await ensureGlobalConfig().then(result => {
   startupConfig = result.config || {}
   if (result.created) logger?.mark?.(`[${pluginName}] created default config: ${result.file}`)
+  void autoStartTestNineServer({ globalConfig: startupConfig }).then(state => {
+    if (state.skipped) return
+    if (state.ok && state.running) logger?.mark?.(`[${pluginName}] 本地验证码服务已自动启动`)
+    else if (!state.ok) logger?.warn?.(`[${pluginName}] 本地验证码自启暂未就绪：${state.reason || "unknown"}`)
+  }).catch(error => {
+    logger?.warn?.(`[${pluginName}] 本地验证码自启失败：${error.message}`)
+  })
 }).catch(error => {
   logger?.warn?.(`[${pluginName}] global config init skipped: ${error.message}`)
 })
