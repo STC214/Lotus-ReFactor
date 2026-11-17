@@ -741,3 +741,31 @@ git diff --check
 容器入口每次执行 `pnpm install --force`。工作区 `allowBuilds.onnxruntime-node` 显式设为 `false`，用于防止包管理器生成无效占位项；不会禁用既有原生运行库。该文件单独备份并校验，其余构建策略不变。两次真实重启后应保持同一文件哈希，验收脚本只能读取，不能在重启后修补文件来制造通过结果。
 
 所有改动、源码增量包、LF 补丁、原版/修复版测试的字面命令与输出、回滚入口留存在维护机 `NON_BLOG_PROJECTS/deploy/miao-update-20261107/review/lotus/`。私有运行配置与账号不进入公开 Git 仓库；回滚检测到后续改动时停止，不覆盖用户现场。
+
+## 10. 2026-11-17 媒体磁盘不足提示与上游同步
+
+基线 `46a1acbbe30f256b1e1a18f8f00fadc235fe9d78`；合并 `MOPELotus/Lotus-ReFactor` 的 `094c338a66cdf9f3a1d986f81a3d4292d33fccdf`。保留所有既有 fork 提交，只接入 `apps/bilibili.js` 与 `services/media/files.js` 的媒体错误处理，不修改账号、定时任务、原生验证码开关 / 自启、音乐 / TuneWeave、UID 索引、网关地址或子模块检出版本。
+
+### 10.1 最小实现和复审修复
+
+`runMediaProcess()` 在非取消、非超时、非零退出时识别磁盘不足 stderr，产生简短中文错误并设置 `error.code = "ENOSPC"`，不向用户转发进程完整输出。Bilibili `renderError()` 根据 `ENOSPC` / `EDQUOT` 或系统磁盘不足消息输出明确的清理磁盘建议。其他错误沿用原诊断，成功进程即使输出类似文本也不判失败。
+
+复审用真实函数与可控子进程事件复现：上游正则漏掉单独出现的 `EDQUOT`，测试先得到 5 通过 / 1 失败。最小修复只为原正则补上 `EDQUOT`，仍统一为现有 ENOSPC 分支，未更改取消、超时、上传队列、独立文件名或清理逻辑。
+
+```js
+/No space left on device|ENOSPC|EDQUOT|Disk quota exceeded/i.test(output)
+```
+
+### 10.2 验证与回滚
+
+新增 `tests/media-disk-full.test.js` 六项测试：四种磁盘 / 配额错误不泄露原始输出、成功不误判、普通错误保留原诊断。原版 Windows 227 通过 / 4 跳过；更新后 233 通过 / 4 跳过，连续两轮零失败。Linux 隔离与正式部署要求全部 237 项执行，无 Windows 平台跳过。
+
+```sh
+node --test tests/media-disk-full.test.js
+node --test --test-reporter=tap test/*.test.js tests/*.test.js
+node --check services/media/files.js
+node --check apps/bilibili.js
+git diff --check
+```
+
+维护证据与两插件统一回滚入口在 `/mnt/sda4/TRSS-Yunzai/yunzai/backups/plugin-update-20261117/`；维护机同名代次位于 `NON_BLOG_PROJECTS/deploy/plugin-update-20261117/`。部署只快进已测试提交，不同步个人配置，不递归更新子模块，不重装依赖。回滚须检验已知提交、反向补丁和原始内容，遇到后续源码编辑停止；不强推公开 fork，不清理运行数据。
