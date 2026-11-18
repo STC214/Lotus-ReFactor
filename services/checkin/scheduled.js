@@ -462,7 +462,7 @@ function isDue(entry, now) {
 
 function hasOtherFailure(outcome) {
   return (outcome.result?.tasks || []).some(row => ["failed", "unverified"].includes(row.status)
-    && (row.kind !== "community" || !row.retryable))
+    && (!["community", "missions"].includes(row.kind) || !row.retryable))
 }
 
 function updateCommunityRetry(entry, outcome, now, planDate, previous) {

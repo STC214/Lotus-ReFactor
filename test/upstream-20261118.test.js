@@ -191,3 +191,13 @@ test("external deadline cancels even an uncooperative runner and releases the pr
   assert.equal(result.ok, false)
   assert.equal(globalThis.__LOTUS_SIGNIN_COORDINATOR__.active, 0)
 })
+
+test("temporary community mission-state read failure does not schedule full game replay", async t => {
+  const f = await fixture(t)
+  const outcome = structuredClone(failedCommunity)
+  outcome.result.tasks = [{ kind: "missions", key: "before", status: "failed", retryable: true }]
+  f.setOutcome(outcome)
+  await f.run()
+  assert.equal((await f.entry()).nextRetryAt, undefined)
+  assert.deepEqual((await f.entry()).communityRetry.forums, [2])
+})
