@@ -18,16 +18,17 @@ export class ProfileSigninService {
     this.appendAudit = options.appendAudit || appendCheckinAudit
   }
 
-  async run({ qq, profileId = 1, profile, refresh = true, onCaptchaEvent, installRequirements = false, source = "manual", timeoutMs, beforeRequest = this.beforeRequest } = {}) {
+  async run({ qq, profileId = 1, profile, refresh = true, onCaptchaEvent, installRequirements = false, source = "manual", timeoutMs, communityRetryForums, signal, beforeRequest = this.beforeRequest } = {}) {
     const releaseSigninPriority = await beginLotusSignin()
     try {
-      return await this.runWithPriority({ qq, profileId, profile, refresh, onCaptchaEvent, installRequirements, source, timeoutMs, beforeRequest })
+      return await this.runWithPriority({ qq, profileId, profile, refresh, onCaptchaEvent, installRequirements, source, timeoutMs, communityRetryForums, signal, beforeRequest })
     } finally {
       releaseSigninPriority()
     }
   }
 
-  async runWithPriority({ qq, profileId = 1, profile, refresh = true, onCaptchaEvent, installRequirements = false, source = "manual", timeoutMs, beforeRequest = this.beforeRequest } = {}) {
+  async runWithPriority({ qq, profileId = 1, profile, refresh = true, onCaptchaEvent, installRequirements = false, source = "manual", timeoutMs, communityRetryForums, signal, beforeRequest = this.beforeRequest } = {}) {
+    const render = this.render && !communityRetryForums
     const userId = String(qq || profile?.user?.qq || "")
     const id = Number(profileId || profile?.profile?.id || 1)
     let activeProfile = profile || await loadProfile(userId, id)
@@ -43,6 +44,7 @@ export class ProfileSigninService {
           message: "签到前刷新登录信息失败，本次签到已停止。",
           advice: "请重新扫码登录对应 profile，或检查 stoken 是否已失效。",
           source,
+          render,
         })
       }
     }
@@ -55,6 +57,7 @@ export class ProfileSigninService {
         message: "profile 尚未保存 cookie，无法执行签到。",
         advice: "请先使用 #扫码登录 绑定当前 profile。",
         source,
+        render,
       })
     }
 
@@ -67,20 +70,22 @@ export class ProfileSigninService {
       })
       result = await runSigninWithTimeout(this.runner, prepareRunnableProfile(activeProfile), {
         installRequirements, timeoutMs, onCaptchaEvent, beforeRequest: guard,
+        communityRetryForums, signal, shortCommunityRetry: source === "scheduled",
       })
     } catch (error) {
       return this.failure({
         stage: error?.code === "LOTUS_RUNNER_TIMEOUT" ? "timeout" : "runner",
         profile: activeProfile,
-        error,
+        error: signal?.aborted ? new Error("今日社区签到补跑已停止。", { cause: error }) : error,
         message: "MihoyoBBSTools runner 执行失败。",
         advice: "先执行 #初始化签到环境，确认 profile 登录态、设备信息和 Python 依赖。",
         source,
+        render,
       })
     }
 
     let image = null
-    if (this.render) {
+    if (render) {
       try {
         image = await this.renderResult({ result, profile: activeProfile, skipped })
       } catch (error) {
@@ -101,9 +106,9 @@ export class ProfileSigninService {
     return outcome
   }
 
-  async failure({ stage, profile, error, message, advice, source = "manual" }) {
+  async failure({ stage, profile, error, message, advice, source = "manual", render = this.render }) {
     let image = null
-    if (this.render) {
+    if (render) {
       try {
         image = await this.renderFailure({ stage, profile, error, message, advice })
       } catch (renderError) {
@@ -136,6 +141,13 @@ async function runSigninWithTimeout(runner, profile, options) {
   const supplied = Number(options.timeoutMs)
   const timeoutMs = Number.isFinite(supplied) && supplied > 0 ? supplied : 20 * 60 * 1000
   const controller = new AbortController()
+  const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal
+  let onAbort
+  const aborted = new Promise((_, reject) => {
+    onAbort = () => reject(signal.reason || new Error("Signin cancelled"))
+    if (signal.aborted) onAbort()
+    else signal.addEventListener("abort", onAbort, { once: true })
+  })
   let timer
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
@@ -147,16 +159,23 @@ async function runSigninWithTimeout(runner, profile, options) {
     }, timeoutMs)
   })
   const beforeRequest = async context => {
-    controller.signal.throwIfAborted()
+    signal.throwIfAborted()
     await options.beforeRequest?.(context)
-    controller.signal.throwIfAborted()
+    signal.throwIfAborted()
   }
   try {
     return await Promise.race([
-      Promise.resolve().then(() => runner.runProfile(profile, { ...options, timeoutMs, signal: controller.signal, beforeRequest })),
+      Promise.resolve().then(() => {
+        signal.throwIfAborted()
+        return runner.runProfile(profile, { ...options, timeoutMs, signal, beforeRequest })
+      }),
       timeout,
+      aborted,
     ])
-  } finally { clearTimeout(timer) }
+  } finally {
+    clearTimeout(timer)
+    signal.removeEventListener("abort", onAbort)
+  }
 }
 
 export async function renderSigninResult({ result, profile, skipped }) {

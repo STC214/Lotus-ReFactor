@@ -769,3 +769,41 @@ git diff --check
 ```
 
 维护证据与两插件统一回滚入口在 `/mnt/sda4/TRSS-Yunzai/yunzai/backups/plugin-update-20261117/`；维护机同名代次位于 `NON_BLOG_PROJECTS/deploy/plugin-update-20261117/`。部署只快进已测试提交，不同步个人配置，不递归更新子模块，不重装依赖。回滚须检验已知提交、反向补丁和原始内容，遇到后续源码编辑停止；不强推公开 fork，不清理运行数据。
+
+## 11. 2026-11-18 社区补签、抽卡回填及上游同步
+
+基线 `c45509020ee68601195f040ac26c3c20f36fd9c4`，锁定原上游 `0d122a554e982e5c67768c8a615e49e3ec66e29d`，共 11 个新提交。仅更新荷花，不更新喵喵，不改 MosDNS、OpenClash、网关或 Git 专用代理。早间检查后新增的 6 个提交一并纳入：原神与星铁官方范围记录回填、米哈游客户端版本及 authkey 签名、人工验证链接期限、网页部署配置和国服绝区零官方调频统计。
+
+### 11.1 合并边界
+
+- 普通消息应用继续使用 `LOTUS_INTERCEPT_PRIORITY` 末位兜底；验证码路由独立。
+- 保留固定/随机签到、Profile 时间、自定义日期分界、原计划路径、缺计划不擅自重建、全任务失败重试、通知补发、超时和审计、跨插件签到资源优先门。
+- 保留 BBDown/aria2/B站登录态、分 P、独立媒体任务及发送后清理，不迁移到 TuneWeave B站后端。
+- 背景池、CPU 渲染、攻略增量缓存、UID 索引面板、国际服 Cookie/语言隔离、批量抽卡转发和旧备份恢复入口均保留。
+- 配置迁移不删除本地工具、验证码自启/模型下载、Python 兼容字段或外部人工验证地址；计划补偿默认继续为本 fork 的每 5 分钟。
+- `MihoyoBBSTools`、`test_nine` 检出与运行数据不变；仅 `gt-manual` 跟随本次上游固定 gitlink，并要求检出前工作树干净。
+- 前瞻兑换码自动兑换沿用上游 opt-in，未主动开启任何用户的自动兑换设置。
+
+### 11.2 两套签到重试的代码级协调
+
+`ScheduledSigninService.runDuePlan()` 对比 `nextRetryAt` 与 `communityRetry.nextAt`，按更早到期者执行；末次社区 cron 仅筛选已有社区补签，不触发普通任务。纯社区临时失败不排全任务重试，混合失败分别保留状态；社区成功不会把未解决的游戏失败改成成功。
+
+`updateCommunityRetry()` 保存失败论坛、次数、下次时间与首轮其他失败状态。临时刷新/runner 错误继续保留论坛，截止尝试后清除；`runAllProfiles()` 清除旧社区状态后按新结果重建。`ProfileSigninService` 转发 `communityRetryForums` 与 `shortCommunityRetry`，通过 `AbortSignal.any()` 合并原超时和午夜截止；取消承诺参与 `Promise.race()`，即使 runner 不响应也释放资源优先门。社区补跑使用文本，不重新生成首轮结果图；通知补发仍独立。
+
+星铁抽卡保留国服/国际服请求族、Cookie 与语言选择，新增按存储文件互斥与请求/写盘前账号一致性保护，并接入上游完整分页回填，避免命中已存记录就提前停止。
+
+### 11.3 验证、部署与回滚入口
+
+新增 `test/upstream-20261118.test.js`，覆盖社区补签持久化、游戏不重复、混合重试不饥饿、截止与跨日、手动补签回调、取消与优先门释放、默认不兑换、配置保护及国际服更新互斥。保留原有全部回归测试。
+
+```sh
+node --test test/upstream-20261118.test.js
+node --run smoke
+node --run strategy-check
+node --test --test-reporter=tap test/*.test.js tests/*.test.js
+git diff --check
+```
+
+验收在正式容器的隔离目录执行原版、更新版、真实反向补丁回滚后的原版以及重新应用后的连续两轮测试，之后才快进正式插件并重启机器人。验收要求 QQ 在线、原生验证码和缓存网关健康，保护配置哈希、其他子模块与喵喵版本不变。
+
+字面命令、输入、输出、退出码与校验值位于维护机 `NON_BLOG_PROJECTS/deploy/plugin-update-20261118/verification-record.json`；路由器证据目录为 `/mnt/sda4/TRSS-Yunzai/yunzai/backups/plugin-update-20261118/`。`update.bundle` 为更新对象包，`before.bundle` 保存原版，`update.patch` 为完整二进制差异；`rollback.py` 的同一回滚函数用于隔离演练。正式回滚须在软路由运行 `python3 rollback.py --apply`，仅接受已知更新提交且无额外源码编辑的现场，恢复旧 gt-manual 检出并重启机器人；不强推远端、不删除账号/缓存或未跟踪文件。最终实际结果以验收记录为准，不将离线模拟当作真实账号接口验收。

@@ -5,11 +5,15 @@ import { renderTemplate } from "../../core/render/service.js"
 import { SchedulerService, dateString, nextDateString, normalizeSchedulerConfig, planDateForGeneration } from "../../core/scheduler/service.js"
 import { formatLocalIso } from "../../core/time.js"
 import { notifyProfile } from "../../core/transport/notify.js"
+import { communityForumName } from "../miyoushe/tasks.js"
 import { ProfileSigninService, renderSigninFailure } from "./profileSignin.js"
 
 const taskState = globalThis[Symbol.for("lotus-plugin.scheduled-signin-tasks")] ||= { schedules: new Map(), plans: new Map() }
 const scheduleTasks = taskState.schedules
 const planTasks = taskState.plans
+const COMMUNITY_RETRY_DELAYS = [10, 60, 180].map(minutes => minutes * 60_000)
+const COMMUNITY_RETRY_FALLBACK_DELAY = 6 * 60 * 60_000
+export const COMMUNITY_RETRY_FINAL_CRON = "0 50,59 23 * * ? *"
 
 export class ScheduledSigninService {
   constructor(options = {}) {
@@ -25,7 +29,8 @@ export class ScheduledSigninService {
   async runDue(options = {}) {
     const now = options.now || this.now()
     const planDate = options.date || dateString(now)
-    return runScheduleTask(`run-due:${planDate}`, () => runPlanTask(planDate, () => this.runDuePlan(planDate, now, options)))
+    const task = options.communityRetriesOnly ? "community-retries" : "run-due"
+    return runScheduleTask(`${task}:${planDate}`, () => runPlanTask(planDate, () => this.runDuePlan(planDate, now, options)))
   }
 
   async runAll(options = {}) {
@@ -67,6 +72,7 @@ export class ScheduledSigninService {
       entry.runningAt = formatLocalIso(startedAt)
       entry.lastAttemptAt = entry.runningAt
       delete entry.nextRetryAt
+      delete entry.communityRetry
       await this.scheduler.savePlan(plan)
 
       const outcome = await this.runEntry(entry, {
@@ -86,6 +92,7 @@ export class ScheduledSigninService {
       delete entry.notificationExhaustedAt
       delete entry.resultNotified
       const retryDelay = !outcome.ok && isRetryableOutcome(outcome)
+        && !(outcome.result?.retryCommunityForums?.length && !hasOtherFailure(outcome))
         ? schedulerConfig.failure_retry_minutes[0]
         : undefined
       const retryAt = Number.isFinite(retryDelay)
@@ -100,6 +107,7 @@ export class ScheduledSigninService {
         entry.doneAt = entry.manualCatchUpAt
         delete entry.nextRetryAt
       }
+      updateCommunityRetry(entry, outcome, completedAt, planDate)
       await this.scheduler.savePlan(plan)
       const resultItem = { entry: { ...entry }, outcome }
       results.push(resultItem)
@@ -155,29 +163,41 @@ export class ScheduledSigninService {
     const notificationRetries = options.notify === false
       ? []
       : await this.retryResultNotifications(plan, now, schedulerConfig, options)
-    const dueEntries = plan.entries.filter(entry => isDue(entry, now))
+    const dueEntries = plan.entries.filter(entry => options.communityRetriesOnly
+      ? !entry.done && !entry.runningAt && entry.communityRetry && Date.parse(entry.communityRetry.nextAt) <= now.getTime()
+      : isDue(entry, now))
     const results = []
     for (const entry of dueEntries) {
-      entry.attempts = Number(entry.attempts || 0) + 1
+      const previous = entry.communityRetry
+      const communityOnly = Boolean(previous && Date.parse(previous.nextAt) <= now.getTime()
+        && (options.communityRetriesOnly || !entry.nextRetryAt || Date.parse(previous.nextAt) <= Date.parse(entry.nextRetryAt)))
+      const startedAt = options.now || this.now()
+      if (dateString(startedAt) !== planDate) break
+      if (!communityOnly) entry.attempts = Number(entry.attempts || 0) + 1
       entry.runningAt = formatLocalIso(now)
       entry.lastAttemptAt = entry.runningAt
-      delete entry.nextRetryAt
+      if (!communityOnly) delete entry.nextRetryAt
       await this.scheduler.savePlan(plan)
       const outcome = await this.runEntry(entry, {
         ...options,
         timeoutMs: schedulerConfig.entry_timeout_minutes * 60 * 1000,
+        communityRetryForums: communityOnly ? previous.forums : undefined,
+        retrySignal: communityOnly ? AbortSignal.timeout(Math.max(1, new Date(startedAt).setHours(24, 0, 0, 0) - startedAt.getTime())) : undefined,
       })
       entry.ok = outcome.ok
       entry.stage = outcome.stage
       entry.message = outcome.message || outcome.error?.message || ""
       delete entry.runningAt
-      const retryDelay = !outcome.ok && isRetryableOutcome(outcome)
+      const retryDelay = !communityOnly && !outcome.ok && isRetryableOutcome(outcome)
+        && !(outcome.result?.retryCommunityForums?.length && !hasOtherFailure(outcome))
         ? schedulerConfig.failure_retry_minutes[entry.attempts - 1]
         : undefined
       const retryAt = Number.isFinite(retryDelay)
         ? new Date(now.getTime() + retryDelay * 60 * 1000)
         : null
-      if (retryAt && dateString(retryAt) === planDate) {
+      if (communityOnly) {
+        entry.done = !entry.nextRetryAt
+      } else if (retryAt && dateString(retryAt) === planDate) {
         entry.done = false
         entry.nextRetryAt = formatLocalIso(retryAt)
       } else {
@@ -185,12 +205,24 @@ export class ScheduledSigninService {
         entry.doneAt = formatLocalIso(now)
         delete entry.nextRetryAt
       }
+      updateCommunityRetry(entry, outcome, options.now || this.now(), planDate, communityOnly ? previous : undefined)
+      if (communityOnly) {
+        const attempts = previous.attempts + 1
+        entry.message = `${previous.initialMessage}\n社区签到补跑第 ${attempts} 次：${entry.message || "本轮未完成"}`
+        if (options.notify !== false && outcome.profile) {
+          const next = entry.communityRetry ? `\n预计 ${formatLocalIso(new Date(entry.communityRetry.nextAt)).slice(11, 16)} 后再试。` : "\n今日自动补跑已结束。"
+          try {
+            outcome.notification = await this.notify(outcome.profile,
+              `[荷花插件]社区签到补跑第 ${attempts} 次（Profile ${entry.profileId}）\n本轮只补签：${previous.forums.map(communityForumName).join("、")}。游戏签到结果以首轮为准。\n${entry.message}${next}`, { bot: options.bot || this.bot })
+          } catch (error) { outcome.notification = { ok: false, reason: error.message } }
+        }
+      }
       updateResultNotificationState(entry, outcome, now, schedulerConfig, options)
       await this.scheduler.savePlan(plan)
       results.push({ entry: { ...entry }, outcome })
     }
     return {
-      ok: results.every(item => item.outcome.ok),
+      ok: results.every(item => item.entry.ok),
       date: planDate,
       count: results.length,
       results,
@@ -347,9 +379,11 @@ export class ScheduledSigninService {
         profileId: entry.profileId,
         profile,
         refresh: true,
-        source: options.source || "scheduled",
+        source: options.communityRetryForums ? "scheduled_community_retry" : options.source || "scheduled",
         timeoutMs: options.timeoutMs,
         installRequirements: false,
+        communityRetryForums: options.communityRetryForums,
+        signal: options.retrySignal,
         onCaptchaEvent: async event => {
           await captchaReporter(event).catch(error => {
             globalThis.logger?.warn?.(`[Lotus-Plugin] captcha notify failed: ${error.message}`)
@@ -357,6 +391,7 @@ export class ScheduledSigninService {
         },
       })
       profile = outcome.profile || profile
+      if (options.communityRetryForums) return { ...outcome, profile }
       if (options.notify !== false && profile) {
         try {
           outcome.notification = await this.notify(profile, outcome.image || outcome.message, { bot: options.bot || this.bot })
@@ -373,7 +408,7 @@ export class ScheduledSigninService {
       }
       let image = null
       try {
-        image = await renderSigninFailure({
+        if (!options.communityRetryForums) image = await renderSigninFailure({
           stage: "schedule",
           profile: fallbackProfile,
           error,
@@ -383,7 +418,7 @@ export class ScheduledSigninService {
       } catch (renderError) {
         globalThis.logger?.warn?.(`[Lotus-Plugin] scheduled signin failure render failed: ${renderError.message}`)
       }
-      if (options.notify !== false) {
+      if (!options.communityRetryForums && options.notify !== false) {
         const notification = await this.notify(fallbackProfile, image || `[荷花插件]计划签到失败：${error.message}`, { bot: options.bot || this.bot }).catch(notifyError => {
           globalThis.logger?.warn?.(`[Lotus-Plugin] scheduled signin notify failed: ${notifyError.message}`)
           return { ok: false, reason: notifyError.message, error: notifyError }
@@ -417,11 +452,42 @@ function qqAvatar(qq) {
 
 function isDue(entry, now) {
   if (entry.done || entry.runningAt) return false
+  if (entry.communityRetry && Date.parse(entry.communityRetry.nextAt) <= now.getTime()) return true
   if (entry.nextRetryAt) {
     const retryAt = new Date(entry.nextRetryAt)
-    if (!Number.isNaN(retryAt.getTime()) && retryAt.getTime() > now.getTime()) return false
+    if (!Number.isNaN(retryAt.getTime())) return retryAt.getTime() <= now.getTime()
   }
-  return timeToMinute(entry.time) <= now.getHours() * 60 + now.getMinutes()
+  return !entry.communityRetry && timeToMinute(entry.time) <= now.getHours() * 60 + now.getMinutes()
+}
+
+function hasOtherFailure(outcome) {
+  return (outcome.result?.tasks || []).some(row => ["failed", "unverified"].includes(row.status)
+    && (row.kind !== "community" || !row.retryable))
+}
+
+function updateCommunityRetry(entry, outcome, now, planDate, previous) {
+  const forums = outcome.result?.retryCommunityForums
+    || (previous && ["refresh", "runner", "timeout", "schedule"].includes(outcome.stage) ? previous.forums : [])
+  const attempts = previous ? previous.attempts + 1 : 0
+  const cutoff = new Date(now).setHours(23, 50, 0, 0)
+  const finalRetry = previous && now.getTime() >= cutoff
+  const delay = COMMUNITY_RETRY_DELAYS[attempts] ?? COMMUNITY_RETRY_FALLBACK_DELAY
+  const nextAt = now.getTime() < cutoff ? Math.min(now.getTime() + delay, cutoff) : new Date(now).setHours(23, 59, 0, 0)
+  const otherFailure = Boolean(previous?.otherFailure || hasOtherFailure(outcome))
+  if (forums.length && !finalRetry && dateString(now) === planDate && nextAt > now.getTime()) {
+    entry.communityRetry = { forums, attempts, nextAt: new Date(nextAt).toISOString(), otherFailure,
+      initialMessage: previous?.initialMessage ?? entry.message }
+    entry.done = false
+  } else {
+    delete entry.communityRetry
+  }
+  if (previous) {
+    const tasks = outcome.result?.tasks || []
+    const retriedAll = previous.forums.every(id => tasks.some(row => row.kind === "community" && row.key === id && ["success", "already"].includes(row.status)))
+    entry.ok = Boolean(outcome.ok && retriedAll && !otherFailure)
+  }
+  if (entry.done) entry.doneAt = formatLocalIso(now)
+  else delete entry.doneAt
 }
 
 function recoverStaleRunningEntries(plan, now, timeoutMinutes) {
