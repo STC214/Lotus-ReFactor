@@ -201,3 +201,70 @@ test("temporary community mission-state read failure does not schedule full game
   assert.equal((await f.entry()).nextRetryAt, undefined)
   assert.deepEqual((await f.entry()).communityRetry.forums, [2])
 })
+
+test("manual rerun clears completed state before persisting its running marker", async t => {
+  const f = await fixture(t)
+  const plan = await f.scheduler.getPlan("2026-11-18")
+  plan.entries[0].done = true
+  plan.entries[0].doneAt = "2026-11-18T04:30:00"
+  await f.scheduler.savePlan(plan)
+  let running
+  f.service.signin.run = async () => {
+    running = await f.entry()
+    return successCommunity
+  }
+  const result = await f.service.runAll({ config, profiles: [profile], now: new Date(2026, 10, 18, 5) })
+  assert.equal(result.ok, true)
+  assert.equal(running.done, false)
+  assert.equal(running.doneAt, undefined)
+  assert.ok(running.runningAt)
+})
+
+test("full retry delay begins after the job completes, not at the scan start", async t => {
+  const f = await fixture(t)
+  f.service.signin.run = async () => {
+    f.setNow(new Date(2026, 10, 18, 4, 50))
+    return { ok: false, stage: "timeout", profile, message: "fixture timeout" }
+  }
+  await f.service.runDue({ config })
+  const entry = await f.entry()
+  assert.equal(new Date(entry.nextRetryAt).getHours(), 5)
+  assert.equal(new Date(entry.nextRetryAt).getMinutes(), 5)
+})
+
+test("queued profiles persist their actual start time instead of the first scan time", async t => {
+  const f = await fixture(t)
+  const plan = await f.scheduler.getPlan("2026-11-18")
+  plan.entries.push({ ...plan.entries[0], profileId: 2 })
+  await f.scheduler.savePlan(plan)
+  let calls = 0
+  let second
+  f.service.signin.run = async () => {
+    calls += 1
+    if (calls === 1) f.setNow(new Date(2026, 10, 18, 4, 50))
+    else {
+      second = (await f.scheduler.getPlan("2026-11-18")).entries[1]
+    }
+    return successCommunity
+  }
+  const result = await f.service.runDue({ config })
+  assert.equal(result.ok, true)
+  assert.equal(calls, 2)
+  assert.equal(new Date(second.runningAt).getMinutes(), 50)
+})
+
+test("a completion after midnight never leaves a notification retry in yesterday's plan", async t => {
+  const f = await fixture(t, new Date(2026, 10, 18, 23, 50))
+  const plan = await f.scheduler.getPlan("2026-11-18")
+  plan.entries[0].notificationRetryAt = "2026-11-18T23:55:00"
+  await f.scheduler.savePlan(plan)
+  f.service.signin.run = async () => {
+    f.setNow(new Date(2026, 10, 19, 0, 5))
+    return successCommunity
+  }
+  f.service.notify = async () => ({ ok: false })
+  await f.service.runDue({ config })
+  const entry = await f.entry()
+  assert.equal(entry.notificationRetryAt, undefined)
+  assert.ok(entry.notificationExhaustedAt)
+})

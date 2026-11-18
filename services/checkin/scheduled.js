@@ -69,6 +69,8 @@ export class ScheduledSigninService {
       const startedAt = options.now || this.now()
       entry.attemptsBeforeManualCatchUp = Number(entry.attempts || 0)
       entry.attempts = 1
+      entry.done = false
+      delete entry.doneAt
       entry.runningAt = formatLocalIso(startedAt)
       entry.lastAttemptAt = entry.runningAt
       delete entry.nextRetryAt
@@ -174,7 +176,7 @@ export class ScheduledSigninService {
       const startedAt = options.now || this.now()
       if (dateString(startedAt) !== planDate) break
       if (!communityOnly) entry.attempts = Number(entry.attempts || 0) + 1
-      entry.runningAt = formatLocalIso(now)
+      entry.runningAt = formatLocalIso(startedAt)
       entry.lastAttemptAt = entry.runningAt
       if (!communityOnly) delete entry.nextRetryAt
       await this.scheduler.savePlan(plan)
@@ -184,6 +186,7 @@ export class ScheduledSigninService {
         communityRetryForums: communityOnly ? previous.forums : undefined,
         retrySignal: communityOnly ? AbortSignal.timeout(Math.max(1, new Date(startedAt).setHours(24, 0, 0, 0) - startedAt.getTime())) : undefined,
       })
+      const completedAt = options.now || this.now()
       entry.ok = outcome.ok
       entry.stage = outcome.stage
       entry.message = outcome.message || outcome.error?.message || ""
@@ -193,7 +196,7 @@ export class ScheduledSigninService {
         ? schedulerConfig.failure_retry_minutes[entry.attempts - 1]
         : undefined
       const retryAt = Number.isFinite(retryDelay)
-        ? new Date(now.getTime() + retryDelay * 60 * 1000)
+        ? new Date(completedAt.getTime() + retryDelay * 60 * 1000)
         : null
       if (communityOnly) {
         entry.done = !entry.nextRetryAt
@@ -202,10 +205,10 @@ export class ScheduledSigninService {
         entry.nextRetryAt = formatLocalIso(retryAt)
       } else {
         entry.done = true
-        entry.doneAt = formatLocalIso(now)
+        entry.doneAt = formatLocalIso(completedAt)
         delete entry.nextRetryAt
       }
-      updateCommunityRetry(entry, outcome, options.now || this.now(), planDate, communityOnly ? previous : undefined)
+      updateCommunityRetry(entry, outcome, completedAt, planDate, communityOnly ? previous : undefined)
       if (communityOnly) {
         const attempts = previous.attempts + 1
         entry.message = `${previous.initialMessage}\n社区签到补跑第 ${attempts} 次：${entry.message || "本轮未完成"}`
@@ -217,7 +220,7 @@ export class ScheduledSigninService {
           } catch (error) { outcome.notification = { ok: false, reason: error.message } }
         }
       }
-      updateResultNotificationState(entry, outcome, now, schedulerConfig, options)
+      updateResultNotificationState(entry, outcome, completedAt, schedulerConfig, options, planDate)
       await this.scheduler.savePlan(plan)
       results.push({ entry: { ...entry }, outcome })
     }
@@ -509,20 +512,22 @@ function isRetryableOutcome(outcome = {}) {
   return ["refresh", "checkin", "runner", "schedule", "timeout"].includes(outcome.stage)
 }
 
-function updateResultNotificationState(entry, outcome, now, schedulerConfig, options = {}) {
+function updateResultNotificationState(entry, outcome, now, schedulerConfig, options = {}, planDate = dateString(now)) {
   if (options.notify === false || !outcome.notification) return
   entry.notificationAttempts = 1
   entry.lastNotificationAt = formatLocalIso(now)
   entry.resultNotified = Boolean(outcome.notification.ok)
+  delete entry.notificationExhaustedAt
   if (entry.resultNotified) {
     delete entry.notificationRetryAt
     return
   }
   const delay = schedulerConfig.failure_retry_minutes[0]
   const retryAt = Number.isFinite(delay) ? new Date(now.getTime() + delay * 60 * 1000) : null
-  if (retryAt && dateString(retryAt) === dateString(now)) {
+  if (retryAt && dateString(retryAt) === planDate) {
     entry.notificationRetryAt = formatLocalIso(retryAt)
   } else {
+    delete entry.notificationRetryAt
     entry.notificationExhaustedAt = formatLocalIso(now)
   }
 }
